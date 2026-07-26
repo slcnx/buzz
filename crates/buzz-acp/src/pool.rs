@@ -1725,6 +1725,7 @@ pub async fn run_prompt_task(
     // (`prompt[0].text.startsWith("/")`) fires; the wrapped Buzz context
     // follows as a second block.
     let mut slash_command: Option<String> = None;
+    let mut completion_reply_contract = None;
     let prompt_sections: Vec<String> = if let Some(text) = prompt_text {
         // Heartbeats create their session before this point, so a Goose method-not-found
         // probe has already selected the correct framing for this process.
@@ -1751,6 +1752,20 @@ pub async fn run_prompt_task(
 
         let profile_lookup =
             fetch_prompt_profile_lookup(b, conversation_context.as_ref(), &ctx.rest_client).await;
+
+        if let Some(last_event) = b.events.last() {
+            let thread_tags = crate::queue::parse_thread_tags(&last_event.event);
+            let is_dm = channel_info
+                .as_ref()
+                .is_some_and(|info| info.channel_type == "dm");
+            completion_reply_contract = crate::queue::resolve_human_reply_contract(
+                &last_event.event.pubkey.to_hex(),
+                &thread_tags,
+                &last_event.event.id.to_hex(),
+                is_dm,
+                profile_lookup.as_ref(),
+            );
+        }
 
         let known_names: Vec<&str> = profile_lookup
             .iter()
@@ -1795,6 +1810,13 @@ pub async fn run_prompt_task(
             None,
         );
         return;
+    };
+
+    let completion_publication_before = match (&source, &completion_reply_contract) {
+        (PromptSource::Channel(channel_id), Some(_)) => {
+            query_channel_publication_snapshot(&ctx.rest_client, *channel_id).await
+        }
+        _ => PublicationSnapshot::Unknown,
     };
 
     // 💬 — fire-and-forget so the prompt fires immediately.
@@ -1962,6 +1984,15 @@ pub async fn run_prompt_task(
                             &source,
                             &control_signal,
                         );
+                        ensure_human_reply_published(
+                            &mut agent,
+                            &session_id,
+                            &ctx,
+                            observer_channel_id,
+                            completion_reply_contract.as_ref(),
+                            &completion_publication_before,
+                        )
+                        .await;
                         let usage = agent.acp.take_turn_usage();
                         publish_agent_turn_metric(
                             &ctx,
@@ -2021,6 +2052,18 @@ pub async fn run_prompt_task(
                     "rotating session for {source:?} after {stop_reason:?}",
                 );
                 agent.state.invalidate(&source);
+            }
+
+            if !matches!(stop_reason, StopReason::Cancelled) {
+                ensure_human_reply_published(
+                    &mut agent,
+                    &session_id,
+                    &ctx,
+                    observer_channel_id,
+                    completion_reply_contract.as_ref(),
+                    &completion_publication_before,
+                )
+                .await;
             }
 
             let core_stop = acp_stop_to_core(&stop_reason);
@@ -3313,6 +3356,213 @@ fn acp_stop_to_core(r: &StopReason) -> buzz_core::agent_turn_metric::StopReason 
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum PublicationSnapshot {
+    Known(HashSet<String>),
+    Unknown,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+enum PublicationObservation {
+    Published,
+    Missing,
+    Unknown,
+}
+
+fn observe_completion_publication(
+    before: &PublicationSnapshot,
+    after: &PublicationSnapshot,
+) -> PublicationObservation {
+    match (before, after) {
+        (PublicationSnapshot::Known(before), PublicationSnapshot::Known(after)) => {
+            if after.difference(before).next().is_some() {
+                PublicationObservation::Published
+            } else {
+                PublicationObservation::Missing
+            }
+        }
+        _ => PublicationObservation::Unknown,
+    }
+}
+
+/// Query recent stream-message IDs authored by this managed agent in a channel.
+async fn query_channel_publication_snapshot(
+    rest: &RestClient,
+    channel_id: Uuid,
+) -> PublicationSnapshot {
+    use nostr::{Alphabet, SingleLetterTag};
+
+    let channel = channel_id.to_string();
+    let filter = nostr::Filter::new()
+        .kinds([
+            nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE as u16),
+            nostr::Kind::Custom(buzz_core::kind::KIND_STREAM_MESSAGE_V2 as u16),
+        ])
+        .author(rest.keys.public_key())
+        .custom_tags(SingleLetterTag::lowercase(Alphabet::H), [channel.as_str()])
+        .limit(64);
+
+    let response = match tokio::time::timeout(Duration::from_secs(1), rest.query(&[filter])).await {
+        Ok(Ok(value)) => value,
+        Ok(Err(error)) => {
+            tracing::warn!(
+                target: "pool::completion",
+                channel = %channel_id,
+                "completion publication query failed: {error}"
+            );
+            return PublicationSnapshot::Unknown;
+        }
+        Err(_) => {
+            tracing::warn!(
+                target: "pool::completion",
+                channel = %channel_id,
+                "completion publication query timed out"
+            );
+            return PublicationSnapshot::Unknown;
+        }
+    };
+
+    let Some(events) = response.as_array() else {
+        tracing::warn!(
+            target: "pool::completion",
+            channel = %channel_id,
+            "completion publication query returned a non-array response"
+        );
+        return PublicationSnapshot::Unknown;
+    };
+    let mut ids = HashSet::with_capacity(events.len());
+    for event in events {
+        let Some(id) = event.get("id").and_then(serde_json::Value::as_str) else {
+            tracing::warn!(
+                target: "pool::completion",
+                channel = %channel_id,
+                "completion publication query returned an event without an id"
+            );
+            return PublicationSnapshot::Unknown;
+        };
+        ids.insert(id.to_string());
+    }
+    PublicationSnapshot::Known(ids)
+}
+
+fn completion_retry_prompt(channel_id: Uuid, reply_to: Option<&str>) -> String {
+    let reply_instruction = reply_to
+        .map(|event_id| format!(" Include `--reply-to {event_id}`."))
+        .unwrap_or_default();
+    format!(
+        "The human-triggered turn just finished without publishing a channel reply. \
+         Publish the final result now with `buzz messages send --channel {channel_id}`.\
+         {reply_instruction} Do not redo the work or call unrelated tools. Use the result \
+         from the immediately preceding work, send exactly one concise user-facing message, \
+         then end the turn."
+    )
+}
+
+async fn ensure_human_reply_published(
+    agent: &mut OwnedAgent,
+    session_id: &str,
+    ctx: &PromptContext,
+    channel_id: Option<Uuid>,
+    contract: Option<&crate::queue::HumanReplyContract>,
+    before: &PublicationSnapshot,
+) {
+    let (Some(channel_id), Some(contract)) = (channel_id, contract) else {
+        return;
+    };
+    let after = query_channel_publication_snapshot(&ctx.rest_client, channel_id).await;
+    match observe_completion_publication(before, &after) {
+        PublicationObservation::Published => return,
+        PublicationObservation::Unknown => {
+            tracing::warn!(
+                target: "pool::completion",
+                channel = %channel_id,
+                "skipping completion retry because publication state is unknown"
+            );
+            return;
+        }
+        PublicationObservation::Missing => {}
+    }
+
+    agent.acp.observe(
+        "completion_reply_retry",
+        serde_json::json!({
+            "type": "completion_reply_retry",
+            "title": "Publishing result",
+            "text": "No channel reply was detected; requesting one final publish attempt.",
+        }),
+    );
+    let retry_prompt = completion_retry_prompt(channel_id, contract.reply_to.as_deref());
+    let retry_result = agent
+        .acp
+        .session_prompt_with_idle_timeout(
+            session_id,
+            &retry_prompt,
+            ctx.idle_timeout,
+            ctx.max_turn_duration,
+        )
+        .await;
+
+    match retry_result {
+        Ok(stop_reason) => log_stop_reason(&PromptSource::Channel(channel_id), &stop_reason),
+        Err(error) => {
+            tracing::warn!(
+                target: "pool::completion",
+                channel = %channel_id,
+                "completion publication retry failed: {error}"
+            );
+            match error {
+                AcpError::AgentExited | AcpError::HardTimeout { .. } => {
+                    agent.state.invalidate_all();
+                }
+                AcpError::IdleTimeout(_) if agent.acp.has_in_flight_prompt() => {
+                    let cleanup = agent
+                        .acp
+                        .cancel_with_cleanup(session_id, ctx.idle_timeout)
+                        .await;
+                    if matches!(cleanup, Err(AcpError::AgentExited)) {
+                        agent.state.invalidate_all();
+                    } else {
+                        agent.state.invalidate_channel(&channel_id);
+                    }
+                }
+                AcpError::IdleTimeout(_) => {
+                    agent.state.invalidate_channel(&channel_id);
+                }
+                _ => {
+                    agent.state.invalidate_channel(&channel_id);
+                }
+            }
+        }
+    }
+
+    let after_retry = query_channel_publication_snapshot(&ctx.rest_client, channel_id).await;
+    match observe_completion_publication(before, &after_retry) {
+        PublicationObservation::Published => {}
+        PublicationObservation::Unknown => tracing::warn!(
+            target: "pool::completion",
+            channel = %channel_id,
+            "completion publication state remained unknown after retry"
+        ),
+        PublicationObservation::Missing => {
+            agent.acp.observe(
+                "completion_reply_failed",
+                serde_json::json!({
+                    "type": "completion_reply_failed",
+                    "title": "Reply not published",
+                    "text": "The turn finished, but the agent did not publish its result.",
+                }),
+            );
+            post_failure_notice(
+                &ctx.rest_client,
+                channel_id,
+                &contract.failure_thread_tags,
+                "The agent finished the task but did not publish its result. Please retry the request.",
+            )
+            .await;
+        }
+    }
+}
+
 /// Best-effort: build and publish a `kind:44200` NIP-AM agent turn metric event.
 ///
 /// Does nothing when `usage` is `None` (goose emitted no usage notification
@@ -3652,6 +3902,43 @@ mod tests {
     use super::*;
     use nostr::{EventBuilder, Keys, Kind, Tag, Timestamp};
     use serde_json::json;
+
+    #[test]
+    fn completion_publication_observation_detects_a_new_channel_message() {
+        let before = PublicationSnapshot::Known(HashSet::from(["old".to_string()]));
+        let after =
+            PublicationSnapshot::Known(HashSet::from(["old".to_string(), "new".to_string()]));
+
+        assert_eq!(
+            observe_completion_publication(&before, &after),
+            PublicationObservation::Published
+        );
+    }
+
+    #[test]
+    fn completion_publication_observation_requests_retry_when_nothing_was_published() {
+        let before = PublicationSnapshot::Known(HashSet::from(["old".to_string()]));
+        let after = PublicationSnapshot::Known(HashSet::from(["old".to_string()]));
+
+        assert_eq!(
+            observe_completion_publication(&before, &after),
+            PublicationObservation::Missing
+        );
+    }
+
+    #[test]
+    fn completion_publication_observation_is_unknown_when_a_query_failed() {
+        let known = PublicationSnapshot::Known(HashSet::new());
+
+        assert_eq!(
+            observe_completion_publication(&PublicationSnapshot::Unknown, &known),
+            PublicationObservation::Unknown
+        );
+        assert_eq!(
+            observe_completion_publication(&known, &PublicationSnapshot::Unknown),
+            PublicationObservation::Unknown
+        );
+    }
 
     // These pin the initial_message dispatch path (run_prompt_task, ~line 855):
     // a legacy agent WITH a base_prompt must get [Base] prepended to the user

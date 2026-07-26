@@ -1,0 +1,130 @@
+specification {
+  element person {
+    style {
+      shape person
+    }
+  }
+  element system
+  element component
+  element database {
+    style {
+      shape cylinder
+    }
+  }
+}
+
+model {
+  person user {
+    title "User"
+    description "Uses Buzz for communication"
+  }
+  person developer {
+    title "Developer / AI Agent"
+    description "Develops or automates with Buzz"
+  }
+
+  system buzz {
+    title "Buzz"
+    
+    component relay {
+      title "Buzz Relay"
+      description "WebSocket relay server (buzz-relay)\nMain entry point; hosts git & audio"
+    }
+    
+    component core {
+      title "Buzz Core"
+      description "Core types & event verification (buzz-core)"
+    }
+
+    database pg {
+      title "Postgres"
+      description "Event store & data access (buzz-db, buzz-search)"
+    }
+
+    database redis {
+      title "Redis"
+      description "Pub/sub fan-out (buzz-pubsub)"
+    }
+
+    component auth {
+      title "Buzz Auth"
+      description "Authentication & authorization (buzz-auth)"
+    }
+
+    component acp {
+      title "Buzz ACP"
+      description "Harness bridging events to AI agents (buzz-acp)"
+    }
+
+    system infra {
+      title "Local Infrastructure (Docker)"
+      
+      database minio {
+        title "MinIO"
+        description "S3-compatible Object Storage for Media"
+      }
+      
+      component keycloak {
+        title "Keycloak"
+        description "Identity & Access Management (OIDC)"
+      }
+      
+      component prometheus {
+        title "Prometheus"
+        description "Metrics Collection & Monitoring"
+      }
+      
+      component adminer {
+        title "Adminer"
+        description "Database Management Web UI"
+      }
+    }
+  }
+
+  system desktop {
+    title "Desktop App"
+    description "Tauri 2 + React 19"
+  }
+
+  system mobile {
+    title "Mobile App"
+    description "Flutter mobile app"
+  }
+
+  system cli {
+    title "Buzz CLI"
+    description "Agent-first CLI (buzz-cli)"
+  }
+
+  user -> desktop "Uses"
+  user -> mobile "Uses"
+  developer -> cli "Uses"
+  developer -> buzz.acp "Connects via ACP"
+  
+  desktop -> buzz.relay "WebSocket (NIP-29)"
+  mobile -> buzz.relay "WebSocket (NIP-29)"
+  cli -> buzz.relay "WebSocket / HTTP"
+  
+  buzz.acp -> buzz.relay "Subscribes to events"
+  buzz.relay -> buzz.core "Uses"
+  buzz.relay -> buzz.auth "Authenticates via"
+  buzz.relay -> buzz.pg "Reads/Writes"
+  buzz.relay -> buzz.redis "Pub/Sub"
+  
+  buzz.relay -> buzz.infra.minio "Upload/Download Media (Blossom)"
+  buzz.relay -> buzz.infra.prometheus "Exposes Metrics to"
+  buzz.relay -> buzz.infra.keycloak "Verifies OIDC Tokens via"
+  buzz.infra.adminer -> buzz.pg "Manages Database"
+}
+
+views {
+  view index {
+    title "Buzz Architecture Overview"
+    include *
+  }
+
+  view backend of buzz {
+    title "Buzz Backend Architecture"
+    include *
+  }
+}

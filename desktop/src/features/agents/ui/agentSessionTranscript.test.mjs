@@ -42,6 +42,40 @@ function activityTitle(item) {
   return formatToolTitle(item.buzzToolName ?? item.toolName, item.title);
 }
 
+test("buildTranscript renders turn_completed as the terminal activity row", () => {
+  const items = buildTranscript([
+    {
+      ...baseEvent,
+      seq: 1,
+      kind: "turn_started",
+      payload: { source: "channel", triggeringEventIds: [PROMPT_EVENT_ID] },
+    },
+    acpToolUpdate(2, {
+      sessionUpdate: "tool_call_update",
+      toolCallId: "call-finished",
+      status: "completed",
+      title: "shell",
+      kind: "shell",
+      rawOutput: "done",
+    }),
+    {
+      ...baseEvent,
+      seq: 3,
+      kind: "turn_completed",
+      payload: {},
+    },
+  ]);
+
+  const completed = items.at(-1);
+  assert.equal(completed.type, "lifecycle");
+  assert.equal(completed.title, "Turn completed");
+  assert.equal(completed.text, "Finished");
+  assert.equal(completed.acpSource, "turn_completed");
+
+  const displayed = flattenDisplayBlocks(buildTranscriptDisplayBlocks(items));
+  assert.equal(displayed.at(-1)?.title, "Turn completed");
+});
+
 // --- stub-overflow vanish (pins the pre-existing degraded-frame behavior) ---
 
 test("buildTranscript drops a session/prompt turn whose frame was stubbed by the size trimmer", () => {

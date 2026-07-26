@@ -15,10 +15,10 @@ WORKTREE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
 BASE_PORT=$(python3 -c "import hashlib,sys; h=int(hashlib.sha256(sys.argv[1].encode()).hexdigest(), 16); print(10000 + h % 55000)" "$WORKTREE_ROOT")
 export BUZZ_VITE_PORT=$BASE_PORT
 export BUZZ_HMR_PORT=$((BASE_PORT + 1))
-export BUZZ_RELAY_PORT=3000
+export BUZZ_RELAY_PORT=3001
 export VITE_PORT="$BUZZ_VITE_PORT"
 export VITE_HMR_PORT="$BUZZ_HMR_PORT"
-export BUZZ_RELAY_URL="${BUZZ_RELAY_URL:-ws://localhost:3000}"
+export BUZZ_RELAY_URL="${BUZZ_RELAY_URL:-ws://localhost:3001}"
 
 DEV_URL="http://localhost:${BUZZ_VITE_PORT}"
 if [[ "${BUZZ_RESET_WEBVIEW_STATE:-0}" == "1" ]]; then

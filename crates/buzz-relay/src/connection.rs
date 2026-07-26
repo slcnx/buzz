@@ -667,14 +667,6 @@ fn send_admission_result(
             ));
             false
         }
-        Err(crate::admission::AdmissionError::Unavailable) => {
-            metrics::counter!("buzz_admission_rejections_total", "transport" => "websocket", "reason" => "unavailable").increment(1);
-            conn.send(request_rejection_message(
-                sub_id,
-                "rate-limited: shared admission unavailable",
-            ));
-            false
-        }
     }
 }
 

@@ -1634,7 +1634,7 @@ pub fn spawn_agent_child(
     if let Some(error) = spawn_key_refusal(record) {
         return Err(error);
     }
-    let runtime_key = ManagedAgentRuntimeKey::new(record.pubkey.clone(), relay_url)?;
+    let (runtime_key, connection_relay_url) = spawn_relay_target(record.pubkey.clone(), relay_url)?;
     let log_path = super::managed_agent_runtime_log_path(app, &runtime_key)?;
     append_log_marker(
         &log_path,
@@ -1685,10 +1685,6 @@ pub fn spawn_agent_child(
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| effective_command.clone());
 
-    // The caller supplies the explicit canonical pair relay. This is the only
-    // relay this child may connect to, regardless of the record/workspace default.
-    let effective_relay_url = runtime_key.relay_url.clone();
-
     // Augment PATH for DMG launches so child processes can find:
     //   - bundled CLI via ~/.local/bin symlink
     //   - nvm-managed node/npm (nvm initializes only in interactive shells)
@@ -1718,7 +1714,7 @@ pub fn spawn_agent_child(
     }
     command.env("RUST_LOG", child_rust_log_filter());
     command.env("BUZZ_PRIVATE_KEY", &record.private_key_nsec);
-    command.env("BUZZ_RELAY_URL", &effective_relay_url);
+    command.env("BUZZ_RELAY_URL", &connection_relay_url);
     command.env("BUZZ_ACP_LAZY_POOL", if lazy { "true" } else { "false" });
     command.env("BUZZ_ACP_AGENT_COMMAND", &resolved_agent_command);
     command.env("BUZZ_ACP_AGENT_ARGS", agent_args.join(","));
@@ -1945,7 +1941,7 @@ pub fn spawn_agent_child(
     //
     // NOSTR_PRIVATE_KEY mirrors BUZZ_PRIVATE_KEY — keep in sync.
     if let Some(cred_helper) = resolve_command("git-credential-nostr") {
-        let relay_http_url = crate::relay::relay_http_base_url(&effective_relay_url);
+        let relay_http_url = crate::relay::relay_http_base_url(&connection_relay_url);
 
         command.env("NOSTR_PRIVATE_KEY", &record.private_key_nsec);
         command.env("GIT_TERMINAL_PROMPT", "0");
@@ -2038,13 +2034,14 @@ pub fn spawn_agent_child(
 
     // Stamp the effective spawn config so the summary builder can flag
     // needs_restart when disk state drifts from what this process runs.
-    // `effective_relay_url` is already resolved, and resolution is idempotent,
-    // so it serves as the workspace-relay input here.
+    // Spawn drift follows canonical pair identity. Using the configured
+    // connection spelling here would make localhost-backed children appear
+    // stale when the summary recomputes the hash from the runtime key.
     let spawn_config_hash = super::spawn_hash::spawn_config_hash(
         record,
         &personas,
         &teams,
-        &effective_relay_url,
+        &runtime_key.relay_url,
         &global,
     );
 
@@ -2087,6 +2084,18 @@ pub fn spawn_agent_child(
     })
 }
 
+/// Keep process identity canonical while preserving the configured authority
+/// used for the actual connection. Relay community scoping is Host-derived, so
+/// `localhost` and `127.0.0.1` are interchangeable for deduplication but not for
+/// the child's HTTP/WebSocket requests.
+fn spawn_relay_target(
+    pubkey: impl Into<String>,
+    relay_url: &str,
+) -> Result<(ManagedAgentRuntimeKey, String), String> {
+    let runtime_key = ManagedAgentRuntimeKey::new(pubkey, relay_url)?;
+    Ok((runtime_key, relay_url.trim().to_string()))
+}
+
 fn child_rust_log_filter() -> String {
     match std::env::var("RUST_LOG") {
         Ok(existing) if existing.contains("buzz_acp") => existing,
@@ -2127,7 +2136,7 @@ pub fn start_managed_agent_process(
     // Scalar PIDs are migration-only and never establish pair liveness.
     record.runtime_pid = None;
 
-    let mut process = spawn_agent_child(app, record, &key.relay_url, false, owner_hex)?;
+    let mut process = spawn_agent_child(app, record, &relay_url, false, owner_hex)?;
     let now = now_iso();
     let receipt = super::ManagedAgentRuntimeReceipt {
         key: key.clone(),

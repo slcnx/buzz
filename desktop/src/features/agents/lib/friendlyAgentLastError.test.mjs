@@ -5,6 +5,7 @@ import {
   friendlyAgentLastError,
   friendlyTurnErrorCopy,
   CLI_ACP_INTERNAL_ERROR_COPY,
+  LLM_AUTH_DENIED_COPY,
   MODEL_NOT_FOUND_COPY,
   RELAY_MESH_DENIED_COPY,
 } from "./friendlyAgentLastError.ts";
@@ -24,7 +25,7 @@ test("buzz-acp wrapped auth failure → denied copy", () => {
   );
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (401 unauthorized: ...)`,
   });
 });
 
@@ -35,7 +36,7 @@ test("unwrapped buzz-agent prefix → denied copy", () => {
   const result = friendlyAgentLastError("llm auth: 403 forbidden");
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (403 forbidden)`,
   });
 });
 
@@ -52,7 +53,7 @@ test("trims whitespace before matching", () => {
     "  Agent reported error: llm auth: nope\n",
   );
   assert.equal(result?.severity, "denied");
-  assert.equal(result?.copy, RELAY_MESH_DENIED_COPY);
+  assert.equal(result?.copy, `${LLM_AUTH_DENIED_COPY} (nope)`);
 });
 
 test("substring 'llm auth:' that isn't at start is NOT treated as denial", () => {
@@ -89,11 +90,14 @@ test("code -32002 → model-not-found copy (severity: denied)", () => {
   });
 });
 
-test("code -32001 → Buzz shared compute denied copy (structured path)", () => {
-  const result = friendlyAgentLastError("any error text", -32001);
+test("code -32001 with LLM auth detail → provider auth copy", () => {
+  const result = friendlyAgentLastError(
+    'Agent reported error (code -32001): llm auth: {"error":{"message":"Access denied: unknown_error","code":"403"}}',
+    -32001,
+  );
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (403: Access denied: unknown_error)`,
   });
 });
 
@@ -104,7 +108,7 @@ test("code null falls through to legacy string matching", () => {
   );
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (401 unauthorized)`,
   });
 });
 
@@ -115,7 +119,7 @@ test("code undefined falls through to legacy string matching", () => {
   );
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (403 forbidden)`,
   });
 });
 
@@ -170,7 +174,7 @@ test("NaN code param treated as absent — string path applies", () => {
   const result = friendlyAgentLastError("llm auth: denied", NaN);
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (denied)`,
   });
 });
 
@@ -181,7 +185,7 @@ test("embedded code -32001 recovered from message when code param is null", () =
   );
   assert.deepEqual(result, {
     severity: "denied",
-    copy: RELAY_MESH_DENIED_COPY,
+    copy: `${LLM_AUTH_DENIED_COPY} (401)`,
   });
 });
 
@@ -211,7 +215,7 @@ test("friendlyTurnErrorCopy: garbage string code coerces to NaN → string path"
   // "garbage" → NaN → not finite → null → string prefix matches "llm auth:".
   assert.equal(
     friendlyTurnErrorCopy("llm auth: denied", "garbage"),
-    RELAY_MESH_DENIED_COPY,
+    `${LLM_AUTH_DENIED_COPY} (denied)`,
   );
 });
 

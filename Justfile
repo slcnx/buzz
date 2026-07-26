@@ -386,7 +386,7 @@ admin: bootstrap _ensure-migrations
     export PATH="{{justfile_directory()}}/bin:$PATH"
     [[ -d node_modules ]] || pnpm install
     pnpm -C admin-web build
-    export BUZZ_ADMIN_HOST="${BUZZ_ADMIN_HOST:-admin.localhost:3000}"
+    export BUZZ_ADMIN_HOST="${BUZZ_ADMIN_HOST:-admin.localhost:3001}"
     export BUZZ_ADMIN_WEB_DIR="${BUZZ_ADMIN_WEB_DIR:-{{justfile_directory()}}/admin-web/dist}"
     echo "Admin dashboard: http://${BUZZ_ADMIN_HOST}/reports"
     cargo run -p buzz-relay
@@ -413,8 +413,8 @@ dev *ARGS: bootstrap _ensure-sidecar-stubs _ensure-migrations
     #!/usr/bin/env bash
     set -euo pipefail
     export PATH="{{justfile_directory()}}/bin:$PATH"
-    bind_addr="${BUZZ_BIND_ADDR:-0.0.0.0:3000}"
-    relay_port="${bind_addr##*:}"; [[ -n "$relay_port" ]] || relay_port=3000
+    bind_addr="${BUZZ_BIND_ADDR:-0.0.0.0:3001}"
+    relay_port="${bind_addr##*:}"; [[ -n "$relay_port" ]] || relay_port=3001
     health_port="${BUZZ_HEALTH_PORT:-8080}"
     metrics_port="${BUZZ_METRICS_PORT:-9102}"
     if command -v lsof >/dev/null 2>&1; then

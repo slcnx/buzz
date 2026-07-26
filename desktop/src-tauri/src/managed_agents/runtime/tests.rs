@@ -110,6 +110,15 @@ fn unknown_command_returns_none() {
     assert!(known_acp_runtime("custom-agent").is_none());
 }
 
+#[test]
+fn spawn_relay_target_separates_identity_from_connection_authority() {
+    let (key, connection_url) =
+        super::spawn_relay_target("aa".repeat(32), " ws://localhost:3001/ ").unwrap();
+
+    assert_eq!(key.relay_url, "ws://127.0.0.1:3001");
+    assert_eq!(connection_url, "ws://localhost:3001/");
+}
+
 // ── build_respond_to_env tests ───────────────────────────────────────
 
 use super::build_respond_to_env;

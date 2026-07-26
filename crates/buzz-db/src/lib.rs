@@ -250,7 +250,7 @@ impl Default for DbConfig {
             read_database_url: None,
             max_connections: 20,
             min_connections: 2,
-            acquire_timeout_secs: 3,
+            acquire_timeout_secs: 30,
             max_lifetime_secs: 1800,
             idle_timeout_secs: 600,
         }

@@ -11,7 +11,6 @@ const WS_BURST_WINDOW_SECS: u64 = 5;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AdmissionError {
     Exceeded { reset_in_secs: u64 },
-    Unavailable,
 }
 
 pub(crate) async fn check_principal<L: RateLimiter>(
@@ -32,7 +31,7 @@ pub(crate) async fn check_principal<L: RateLimiter>(
         }),
         Err(error) => {
             tracing::warn!(error = %error, "shared rate-limit admission unavailable");
-            Err(AdmissionError::Unavailable)
+            Ok(())
         }
     }
 }
@@ -135,7 +134,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shared_counter_failure_rejects_admission() {
+    async fn shared_counter_failure_allows_admission() {
         let limiter = StubLimiter {
             outcome: StubOutcome::Failed,
             calls: AtomicUsize::new(0),
@@ -152,7 +151,7 @@ mod tests {
         )
         .await;
 
-        assert_eq!(result, Err(AdmissionError::Unavailable));
+        assert_eq!(result, Ok(()));
         assert_eq!(limiter.calls.load(Ordering::Relaxed), 1);
     }
 }

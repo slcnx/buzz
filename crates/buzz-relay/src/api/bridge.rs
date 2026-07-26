@@ -45,13 +45,6 @@ async fn enforce_http_admission(
                 &format!("rate-limited: quota exceeded; retry in {reset_in_secs}s"),
             ))
         }
-        Err(crate::admission::AdmissionError::Unavailable) => {
-            metrics::counter!("buzz_admission_rejections_total", "transport" => "http", "reason" => "unavailable").increment(1);
-            Err(api_error(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "rate-limited: shared admission unavailable",
-            ))
-        }
     }
 }
 

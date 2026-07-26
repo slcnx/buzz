@@ -21,9 +21,9 @@
  *
  * Returns:
  *  - null when there's nothing to show (null/empty lastError).
- *  - A `{ severity: "denied"; copy: string }` object for the auth-failure
- *    and model-not-found cases, so the UI can render with the right visual
- *    weight (destructive).
+ *  - A `{ severity: "denied"; copy: string }` object for provider auth,
+ *    relay-mesh access, and model-not-found cases, so the UI can render with
+ *    the right visual weight (destructive).
  *  - A `{ severity: "generic"; copy: string }` pass-through for any other
  *    lastError, so generic harness exits still surface their text instead of
  *    being swallowed.
@@ -38,6 +38,9 @@ export type FriendlyAgentLastError =
  */
 export const RELAY_MESH_DENIED_COPY =
   "Community access denied this agent — check its community membership.";
+
+export const LLM_AUTH_DENIED_COPY =
+  "The model provider denied this request — check the agent's provider credentials and model access.";
 
 export const MODEL_NOT_FOUND_COPY =
   "The configured model is not available — open agent settings and select a different one from the dropdown.";
@@ -61,6 +64,35 @@ function recoverEmbeddedCode(trimmed: string): {
   };
 }
 
+function recoverLlmAuthDetail(trimmed: string): string | null {
+  const unwrapped = recoverEmbeddedCode(trimmed)?.remainder ?? trimmed;
+  const authPrefix = unwrapped.startsWith("Agent reported error: llm auth:")
+    ? "Agent reported error: llm auth:"
+    : unwrapped.startsWith("llm auth:")
+      ? "llm auth:"
+      : null;
+  if (authPrefix == null) return null;
+
+  const detail = unwrapped.slice(authPrefix.length).trim();
+  if (detail.length === 0) return LLM_AUTH_DENIED_COPY;
+
+  try {
+    const parsed = JSON.parse(detail);
+    const providerError = parsed?.error;
+    if (providerError && typeof providerError === "object") {
+      const code = providerError.code == null ? "" : String(providerError.code);
+      const message =
+        typeof providerError.message === "string" ? providerError.message : "";
+      const summary = [code, message].filter(Boolean).join(": ");
+      if (summary.length > 0) return `${LLM_AUTH_DENIED_COPY} (${summary})`;
+    }
+  } catch {
+    // Provider errors are often plain text rather than JSON.
+  }
+
+  return `${LLM_AUTH_DENIED_COPY} (${detail})`;
+}
+
 export function friendlyAgentLastError(
   raw: string | null,
   code?: number | null,
@@ -77,8 +109,13 @@ export function friendlyAgentLastError(
     : (embedded?.code ?? null);
   if (effectiveCode != null) {
     switch (effectiveCode) {
-      case -32001:
+      case -32001: {
+        const llmAuthCopy = recoverLlmAuthDetail(trimmed);
+        if (llmAuthCopy != null) {
+          return { severity: "denied", copy: llmAuthCopy };
+        }
         return { severity: "denied", copy: RELAY_MESH_DENIED_COPY };
+      }
       case -32002:
         return { severity: "denied", copy: MODEL_NOT_FOUND_COPY };
       case -32603: {
@@ -106,11 +143,9 @@ export function friendlyAgentLastError(
 
   // Legacy string fallback for records written before codes existed.
   // Match either the unwrapped buzz-agent prefix or the buzz-acp v0 wrap.
-  if (
-    trimmed.startsWith("Agent reported error: llm auth:") ||
-    trimmed.startsWith("llm auth:")
-  ) {
-    return { severity: "denied", copy: RELAY_MESH_DENIED_COPY };
+  const llmAuthCopy = recoverLlmAuthDetail(trimmed);
+  if (llmAuthCopy != null) {
+    return { severity: "denied", copy: llmAuthCopy };
   }
 
   return { severity: "generic", copy: trimmed };

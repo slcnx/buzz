@@ -1223,6 +1223,54 @@ fn resolve_reply_anchor(
     )
 }
 
+/// Publication contract for turns that must produce a user-visible reply.
+#[derive(Debug, Clone)]
+pub(crate) struct HumanReplyContract {
+    /// Event passed to `buzz messages send --reply-to`, when threading is required.
+    pub reply_to: Option<String>,
+    /// Root and parent used by the harness's visible failure notice.
+    pub failure_thread_tags: ThreadTags,
+}
+
+/// Resolve the reply contract shared by prompt framing and completion checks.
+pub(crate) fn resolve_human_reply_contract(
+    sender_pubkey: &str,
+    thread_tags: &ThreadTags,
+    triggering_event_id: &str,
+    is_dm: bool,
+    profile_lookup: Option<&PromptProfileLookup>,
+) -> Option<HumanReplyContract> {
+    if is_dm {
+        let reply_to = thread_tags
+            .root_event_id
+            .is_some()
+            .then(|| triggering_event_id.to_string());
+        return Some(HumanReplyContract {
+            failure_thread_tags: ThreadTags {
+                root_event_id: thread_tags.root_event_id.clone(),
+                parent_event_id: reply_to.clone(),
+                mentioned_pubkeys: Vec::new(),
+            },
+            reply_to,
+        });
+    }
+
+    resolve_reply_anchor(
+        sender_pubkey,
+        thread_tags,
+        triggering_event_id,
+        profile_lookup,
+    )
+    .map(|reply_to| HumanReplyContract {
+        failure_thread_tags: ThreadTags {
+            root_event_id: Some(reply_to.clone()),
+            parent_event_id: Some(reply_to.clone()),
+            mentioned_pubkeys: Vec::new(),
+        },
+        reply_to: Some(reply_to),
+    })
+}
+
 /// Format a `[Context]` hints section based on event scope.
 ///
 /// `reply_anchor` is the pre-resolved `--reply-to` target for this turn (see
@@ -1465,19 +1513,14 @@ pub fn format_prompt(batch: &FlushBatch, args: &FormatPromptArgs<'_>) -> Vec<Str
     // Agent↔agent turns get no forced anchor — deep nesting is intentional
     // there. DMs are always 1:1 with a human, so they always anchor.
     let sender_pubkey = last_event.event.pubkey.to_hex();
-    let reply_anchor = if is_dm {
-        thread_tags
-            .root_event_id
-            .is_some()
-            .then(|| last_event.event.id.to_hex())
-    } else {
-        resolve_reply_anchor(
-            &sender_pubkey,
-            &thread_tags,
-            &last_event.event.id.to_hex(),
-            args.profile_lookup,
-        )
-    };
+    let reply_anchor = resolve_human_reply_contract(
+        &sender_pubkey,
+        &thread_tags,
+        &last_event.event.id.to_hex(),
+        is_dm,
+        args.profile_lookup,
+    )
+    .and_then(|contract| contract.reply_to);
     sections.push(format_context_hints(
         batch.channel_id,
         args.channel_info,
@@ -3328,6 +3371,40 @@ mod tests {
         let tags = thread_tags(Some(ROOT_ID), &[AGENT_A_PK, AGENT_B_PK]);
         let anchor = resolve_reply_anchor(AGENT_A_PK, &tags, TRIGGER_ID, Some(&id_lookup()));
         assert_eq!(anchor, None);
+    }
+
+    #[test]
+    fn test_human_reply_contract_preserves_the_prompt_reply_anchor() {
+        let tags = thread_tags(Some(ROOT_ID), &[AGENT_A_PK]);
+        let contract =
+            resolve_human_reply_contract(HUMAN_PK, &tags, TRIGGER_ID, false, Some(&id_lookup()))
+                .expect("human turn must have a reply contract");
+
+        assert_eq!(contract.reply_to.as_deref(), Some(ROOT_ID));
+    }
+
+    #[test]
+    fn test_agent_only_turn_has_no_human_reply_contract() {
+        let tags = thread_tags(Some(ROOT_ID), &[AGENT_B_PK]);
+
+        assert!(resolve_human_reply_contract(
+            AGENT_A_PK,
+            &tags,
+            TRIGGER_ID,
+            false,
+            Some(&id_lookup()),
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_dm_turn_has_a_reply_contract_without_forcing_a_new_thread() {
+        let tags = thread_tags(None, &[]);
+        let contract =
+            resolve_human_reply_contract(HUMAN_PK, &tags, TRIGGER_ID, true, Some(&id_lookup()))
+                .expect("DM turn must have a reply contract");
+
+        assert_eq!(contract.reply_to, None);
     }
 
     #[test]

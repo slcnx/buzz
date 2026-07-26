@@ -758,6 +758,17 @@ export function processTranscriptEvent(
       ctx,
       event.kind,
     );
+  } else if (event.kind === "turn_completed") {
+    upsertTextItem(
+      d,
+      `completed:${ch}:${event.turnId ?? event.seq}`,
+      "lifecycle",
+      "Turn completed",
+      "Finished",
+      event.timestamp,
+      ctx,
+      event.kind,
+    );
   } else if (event.kind === "acp_parse_error") {
     upsertTextItem(
       d,

@@ -244,6 +244,8 @@ fn start_pair(
     app: AppHandle,
 ) -> Result<ManagedAgentRuntimeStatus, String> {
     let state = app.state::<AppState>();
+    let workspace_relay_url = crate::relay::relay_ws_url_with_override(&state);
+    let connection_relay_url = pair_connection_relay_url(&relay_url, &workspace_relay_url);
     let _transition = state
         .managed_agent_runtime_transition
         .lock()
@@ -283,7 +285,8 @@ fn start_pair(
         .lock()
         .ok()
         .map(|keys| keys.public_key().to_hex());
-    let mut process = spawn_agent_child(&app, record, &key.relay_url, lazy, owner.as_deref())?;
+    let mut process =
+        spawn_agent_child(&app, record, &connection_relay_url, lazy, owner.as_deref())?;
     let now = crate::util::now_iso();
     let receipt = ManagedAgentRuntimeReceipt {
         key: key.clone(),
@@ -307,6 +310,19 @@ fn start_pair(
     save_managed_agents(&app, &records)?;
     emit_status(&app, &status);
     Ok(status)
+}
+
+/// Recover the active workspace's configured spelling when callers only have
+/// a canonical runtime status URL. Other community targets keep the exact URL
+/// supplied by reconciliation.
+fn pair_connection_relay_url(requested: &str, workspace: &str) -> String {
+    let requested_key = buzz_core_pkg::relay::normalize_relay_url(requested);
+    let workspace_key = buzz_core_pkg::relay::normalize_relay_url(workspace);
+    if requested_key.is_ok() && requested_key == workspace_key {
+        workspace.trim().to_string()
+    } else {
+        requested.trim().to_string()
+    }
 }
 
 #[tauri::command]
@@ -403,7 +419,7 @@ async fn probe_agent_relay_access(
     let key = ManagedAgentRuntimeKey::new(record.pubkey.clone(), &requested_relay_url)?;
     let keys = nostr::Keys::parse(record.private_key_nsec.trim())
         .map_err(|error| format!("invalid managed-agent key: {error}"))?;
-    let api_base = crate::relay::relay_http_base_url(&key.relay_url);
+    let api_base = crate::relay::relay_http_base_url(&requested_relay_url);
     tokio::time::timeout(
         std::time::Duration::from_secs(10),
         crate::relay::query_relay_at_with_keys(
@@ -504,7 +520,7 @@ pub async fn reconcile_managed_agent_runtimes(
                 Ok((record, key, requested)) => {
                     match start_pair(
                         record.pubkey.clone(),
-                        key.relay_url.clone(),
+                        requested.clone(),
                         true,
                         Some(&record.updated_at),
                         app.clone(),
@@ -659,6 +675,22 @@ mod tests {
     fn runtime_key_canonicalizes_hex_pubkeys() {
         let key = ManagedAgentRuntimeKey::new("AA".repeat(32), "wss://relay.example").unwrap();
         assert_eq!(key.pubkey, "aa".repeat(32));
+    }
+
+    #[test]
+    fn pair_connection_relay_restores_workspace_authority() {
+        assert_eq!(
+            pair_connection_relay_url("ws://127.0.0.1:3001", "ws://localhost:3001"),
+            "ws://localhost:3001"
+        );
+    }
+
+    #[test]
+    fn pair_connection_relay_preserves_other_community_target() {
+        assert_eq!(
+            pair_connection_relay_url("wss://other.example/", "ws://localhost:3001"),
+            "wss://other.example/"
+        );
     }
 
     #[test]

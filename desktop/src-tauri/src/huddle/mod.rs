@@ -916,6 +916,7 @@ pub async fn speak_agent_message(text: String, state: State<'_, AppState>) -> Re
 /// 2. Adds the agent to both the ephemeral and parent channels (kind:9000).
 /// 3. Only appends the agent pubkey to `agent_pubkeys` if the ephemeral add
 ///    succeeded — failed adds (policy rejection) are NOT p-tagged.
+/// 4. Enables local transcription so the agent receives spoken turns.
 ///
 /// Returns a structured `AgentAddResult` so the frontend can surface
 /// parent-channel errors without treating them as hard failures.
@@ -985,6 +986,12 @@ pub async fn add_agent_to_huddle(
         if !hs.participants.contains(&agent_pubkey) {
             hs.participants.push(agent_pubkey);
         }
+    }
+
+    // Agents consume posted transcript events, not the raw audio stream. Keep
+    // the successful enrollment even if the local STT pipeline cannot start.
+    if let Err(e) = set_huddle_transcription_enabled(true, state).await {
+        eprintln!("buzz-desktop: enabling transcript after agent add failed: {e}");
     }
 
     Ok(result)

@@ -22,13 +22,13 @@ export PGPORT="${PGPORT:-5432}"
 export PGUSER="${PGUSER:-buzz}"
 export PGPASSWORD="${PGPASSWORD:-buzz_dev}"
 export PGDATABASE="${PGDATABASE:-buzz}"
-export RELAY_URL="${RELAY_URL:-ws://localhost:3000}"
+export RELAY_URL="${RELAY_URL:-ws://localhost:3001}"
 
 hosts_sql=$(python3 - <<'PY'
 import os
 from urllib.parse import urlparse
 
-relay_url = os.environ.get("RELAY_URL", "ws://localhost:3000")
+relay_url = os.environ.get("RELAY_URL", "ws://localhost:3001")
 parsed = urlparse(relay_url)
 
 host = (parsed.hostname or "").rstrip(".").lower()
