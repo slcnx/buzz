@@ -20,6 +20,9 @@ pub(crate) use path::compose_path_entries;
 pub(crate) use path::should_skip_claude_executable;
 pub(crate) use path::should_use_inherited;
 
+mod relay_target;
+use relay_target::spawn_relay_target;
+
 mod stop;
 pub(crate) use stop::managed_agent_runtime_keys;
 pub use stop::{stop_managed_agent_process, stop_managed_agent_workspace_pair};
@@ -2082,18 +2085,6 @@ pub fn spawn_agent_child(
         adapter_availability: spawned_adapter_availability,
         start_nonce,
     })
-}
-
-/// Keep process identity canonical while preserving the configured authority
-/// used for the actual connection. Relay community scoping is Host-derived, so
-/// `localhost` and `127.0.0.1` are interchangeable for deduplication but not for
-/// the child's HTTP/WebSocket requests.
-fn spawn_relay_target(
-    pubkey: impl Into<String>,
-    relay_url: &str,
-) -> Result<(ManagedAgentRuntimeKey, String), String> {
-    let runtime_key = ManagedAgentRuntimeKey::new(pubkey, relay_url)?;
-    Ok((runtime_key, relay_url.trim().to_string()))
 }
 
 fn child_rust_log_filter() -> String {
