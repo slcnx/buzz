@@ -563,7 +563,7 @@ impl Db {
     pub async fn admin_get_report(
         &self,
         id: Uuid,
-    ) -> Result<Option<admin_moderation::AdminReport>> {
+    ) -> Result<Option<admin_moderation::AdminReportDetail>> {
         admin_moderation::get_report(&self.pool, id).await
     }
 
@@ -898,7 +898,7 @@ impl Db {
             .fetch_one(&mut *tx)
             .await?;
 
-            if owned_count >= relay_members::MAX_COMMUNITIES_PER_OWNER {
+            if owned_count >= relay_members::max_communities_per_owner() {
                 tx.rollback().await?;
                 return Ok(CreateCommunityWithOwnerResult::LimitReached);
             }
@@ -2637,6 +2637,23 @@ impl Db {
         enabled: bool,
     ) -> Result<()> {
         workflow::set_workflow_enabled(&self.pool, community_id, id, enabled).await
+    }
+
+    /// Disable all of an owner's workflows in a channel (SEC-006, on
+    /// membership loss). Returns the number of workflows disabled.
+    pub async fn disable_workflows_for_owner_in_channel(
+        &self,
+        community_id: CommunityId,
+        channel_id: Uuid,
+        owner_pubkey: &[u8],
+    ) -> Result<u64> {
+        workflow::disable_workflows_for_owner_in_channel(
+            &self.pool,
+            community_id,
+            channel_id,
+            owner_pubkey,
+        )
+        .await
     }
 
     /// Delete a workflow and all its runs/approvals.

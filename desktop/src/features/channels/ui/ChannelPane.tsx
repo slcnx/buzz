@@ -514,18 +514,17 @@ export const ChannelPane = React.memo(function ChannelPane({
   const isOverlay = useIsThreadPanelOverlay();
   const useSplitAuxiliaryPane = !isSinglePanelView && !isOverlay;
   const threadViewMode = useThreadViewMode();
-  // Focus mode is a wide-viewport-only alternative to the split thread pane:
-  // narrow viewports keep their existing single-panel / floating-overlay
-  // behavior untouched. It applies to the thread panel only — channel
-  // management, agent session and profile panels always use the split pane.
   const useFocusThreadDrawer =
     threadViewMode === "focus" &&
     useSplitAuxiliaryPane &&
     (Boolean(threadHeadMessage) || shouldShowThreadSkeleton);
-  const { channelIsCovered, markExitComplete } =
-    useFocusDrawerPresence(useFocusThreadDrawer);
+  const { channelIsCovered, markExitComplete } = useFocusDrawerPresence(
+    useFocusThreadDrawer,
+    onCloseThread,
+  );
   const { changeThreadViewMode, layoutScrollTargetId, resolveScrollTarget } =
     useThreadViewModeSwitch({
+      activeThreadHeadId: threadHeadMessage?.id ?? null,
       externalScrollTargetId: threadScrollTargetId,
       onExternalTargetResolved: onThreadScrollTargetResolved,
       onModeChange: markExitComplete,
@@ -820,7 +819,7 @@ export const ChannelPane = React.memo(function ChannelPane({
             </div>
           )}
           {canDropInMainColumn && mainComposerMedia.isDragOver ? (
-            <DropZoneOverlay className="z-30 rounded-none" />
+            <DropZoneOverlay className="z-50 rounded-2xl bg-primary/20 backdrop-blur-sm" />
           ) : null}
         </section>
       ) : null}
@@ -881,7 +880,8 @@ export const ChannelPane = React.memo(function ChannelPane({
                 onExpandReplies={onExpandThreadReplies}
                 onSelectReplyTarget={onSelectThreadReplyTarget}
                 onSend={onSendThreadReply}
-                onScrollTargetResolved={resolveScrollTarget}
+                onScrollTargetResolved={() => resolveScrollTarget()}
+                onScrollTargetSettled={resolveScrollTarget}
                 onToggleReaction={onToggleReaction}
                 onUnfollowThread={onUnfollowThread}
                 profiles={profiles}
