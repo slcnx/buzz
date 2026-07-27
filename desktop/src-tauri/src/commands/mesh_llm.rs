@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{future::Future, path::PathBuf, pin::Pin};
 
 use tauri::{AppHandle, Manager, State};
 
@@ -372,38 +372,46 @@ fn pick_serve_target_for_model(
 /// a relay query failure ("could not refresh targets") is not the same as a
 /// relay that answered with no live target for this model ("peer offline").
 /// Non relay-mesh records are a no-op.
-pub(crate) async fn ensure_relay_mesh_for_record(
-    app: &AppHandle,
-    record: &crate::managed_agents::ManagedAgentRecord,
-    _allow_fresh_create_start: bool,
-) -> Result<(), String> {
-    let state = app.state::<AppState>();
-    let Some(model_id) = crate::managed_agents::relay_mesh_model_id(record) else {
-        return Ok(());
-    };
-    // A local serve/client runtime already owns the OpenAI ingress and its
-    // router can resolve both `auto` and explicit remote models. Do not require
-    // a separate relay-advertised target in that case.
-    if state.mesh_llm_runtime.lock().await.is_some() {
-        return wait_for_mesh_inference(&model_id).await;
-    }
-    let target = match resolve_mesh_bootstrap_target(&state, &model_id).await {
-        Ok(Some(target)) => target,
-        Ok(None) => {
-            return Err(
-                "Buzz shared compute cannot start because no live member is serving this model. Start serving it on a member, then try again."
-                    .to_string(),
-            );
-        }
-        Err(error) => {
-            return Err(format!(
-                "could not refresh Buzz shared compute serving members: {error}"
-            ));
-        }
-    };
+type RelayMeshPreflightFuture<'a> = Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
-    ensure_client_node_for_model(&state, &model_id, Some(target.endpoint_addr)).await?;
-    wait_for_mesh_inference(&model_id).await
+pub(crate) fn ensure_relay_mesh_for_record<'a>(
+    app: &'a AppHandle,
+    record: &'a crate::managed_agents::ManagedAgentRecord,
+    _allow_fresh_create_start: bool,
+) -> RelayMeshPreflightFuture<'a> {
+    // Tauri constructs command futures on the Windows UI thread before moving
+    // them to the async runtime. Mesh startup futures are large enough to
+    // overflow that thread's stack, so keep the future behind a heap pointer at
+    // every caller boundary.
+    Box::pin(async move {
+        let state = app.state::<AppState>();
+        let Some(model_id) = crate::managed_agents::relay_mesh_model_id(record) else {
+            return Ok(());
+        };
+        // A local serve/client runtime already owns the OpenAI ingress and its
+        // router can resolve both `auto` and explicit remote models. Do not require
+        // a separate relay-advertised target in that case.
+        if state.mesh_llm_runtime.lock().await.is_some() {
+            return wait_for_mesh_inference(&model_id).await;
+        }
+        let target = match resolve_mesh_bootstrap_target(&state, &model_id).await {
+            Ok(Some(target)) => target,
+            Ok(None) => {
+                return Err(
+                    "Buzz shared compute cannot start because no live member is serving this model. Start serving it on a member, then try again."
+                        .to_string(),
+                );
+            }
+            Err(error) => {
+                return Err(format!(
+                    "could not refresh Buzz shared compute serving members: {error}"
+                ));
+            }
+        };
+
+        ensure_client_node_for_model(&state, &model_id, Some(target.endpoint_addr)).await?;
+        wait_for_mesh_inference(&model_id).await
+    })
 }
 
 #[tauri::command]
@@ -465,6 +473,14 @@ pub async fn mesh_model_catalog() -> CmdResult<mesh_llm::MeshModelCatalog> {
 mod tests {
     use super::*;
     use crate::app_state::build_app_state;
+
+    #[test]
+    fn relay_mesh_preflight_future_stays_heap_boxed() {
+        assert!(
+            std::mem::size_of::<RelayMeshPreflightFuture<'static>>()
+                <= 2 * std::mem::size_of::<usize>()
+        );
+    }
 
     fn target(model_id: &str, endpoint_addr: &str) -> mesh_llm::MeshServeTarget {
         mesh_llm::MeshServeTarget {
