@@ -214,6 +214,31 @@ fn require_probe_server(
     })
 }
 
+fn prepare_probe_server(
+    mut server: McpServerStdio,
+    augmented_path: Option<String>,
+) -> McpServerStdio {
+    let has_explicit_path = server.env.iter().any(|variable| {
+        #[cfg(windows)]
+        {
+            variable.name.eq_ignore_ascii_case("PATH")
+        }
+        #[cfg(not(windows))]
+        {
+            variable.name == "PATH"
+        }
+    });
+    if !has_explicit_path {
+        if let Some(path) = augmented_path {
+            server.env.push(EnvVar {
+                name: "PATH".to_owned(),
+                value: path,
+            });
+        }
+    }
+    server
+}
+
 async fn spawn_probe(server: McpServerStdio) -> Result<McpRegistry, String> {
     let mut config = Config::for_discovery(Provider::OpenAi, String::new(), String::new());
     config.mcp_init_timeout = Duration::from_secs(15);
@@ -224,6 +249,7 @@ async fn spawn_probe(server: McpServerStdio) -> Result<McpRegistry, String> {
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .to_string_lossy()
         .into_owned();
+    let server = prepare_probe_server(server, super::readiness::cli_probe::augmented_path());
     McpRegistry::spawn_all(&config, &[server], &cwd)
         .await
         .map_err(|error| error.to_string())
@@ -352,6 +378,39 @@ pub async fn call_mcp_server_tool(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn probe_server(env: Vec<EnvVar>) -> McpServerStdio {
+        McpServerStdio {
+            name: "playwright".to_owned(),
+            command: "npx".to_owned(),
+            args: vec!["-y".to_owned(), "@playwright/mcp@latest".to_owned()],
+            env,
+        }
+    }
+
+    #[test]
+    fn probe_injects_the_gui_safe_runtime_path() {
+        let server = prepare_probe_server(probe_server(Vec::new()), Some("/managed/bin".into()));
+        let path = server
+            .env
+            .iter()
+            .find(|variable| variable.name == "PATH")
+            .expect("probe PATH");
+        assert_eq!(path.value, "/managed/bin");
+    }
+
+    #[test]
+    fn probe_preserves_an_explicit_server_path() {
+        let server = prepare_probe_server(
+            probe_server(vec![EnvVar {
+                name: "PATH".to_owned(),
+                value: "/custom/bin".to_owned(),
+            }]),
+            Some("/managed/bin".into()),
+        );
+        assert_eq!(server.env.len(), 1);
+        assert_eq!(server.env[0].value, "/custom/bin");
+    }
 
     #[test]
     fn maps_agent_lifecycle_without_claiming_child_process_visibility() {
