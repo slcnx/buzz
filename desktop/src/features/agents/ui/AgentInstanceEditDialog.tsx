@@ -697,6 +697,9 @@ export function AgentInstanceEditDialog({
         envVars: envVarsEqual(submitEnvVars, agent.envVars)
           ? undefined
           : submitEnvVars,
+        mcpServers: serversEqual(mcpServers, agent.mcpServers)
+          ? undefined
+          : mcpServers,
         respondTo: respondTo !== agent.respondTo ? respondTo : undefined,
         // The allowlist is preserved across mode toggles in local UI state
         // (so a user can flip away from allowlist and back without losing
@@ -1174,8 +1177,13 @@ export function AgentInstanceEditDialog({
                           : undefined
                       }
                       inheritedEnvVars={inheritedEnvVarsForAdvanced}
+                      inheritedMcpServers={mergeMcpServersByName(
+                        globalConfig.mcp_servers ?? [],
+                        linkedPersona?.mcpServers ?? [],
+                      )}
                       inheritHarness={inheritHarness}
                       linkedPersona={linkedPersona}
+                      mcpServers={mcpServers}
                       model={inheritedSubmission.model ?? ""}
                       modelTuningRuntimeId={prospectiveRuntimeId}
                       parallelism={parallelism}

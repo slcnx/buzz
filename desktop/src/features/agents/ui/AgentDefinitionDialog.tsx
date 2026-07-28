@@ -213,6 +213,7 @@ export function AgentDefinitionDialog({
     setBehaviorDraft(nextBehaviorDraft);
     setNamePoolText(nextNamePoolText);
     setEnvVars(nextEnvVars);
+    setMcpServers(nextMcpServers);
     // Advanced always starts collapsed and only changes from its toggle.
     setShowAdvancedFields(false);
     setIsAvatarUploadPending(false);
@@ -1010,6 +1011,7 @@ export function AgentDefinitionDialog({
                         topLevelSecretEnvVar ? [topLevelSecretEnvVar] : []
                       }
                       inheritedEnvVars={inheritedEnvVarsForAdvanced}
+                      mcpServers={mcpServers}
                       model={model}
                       modelTuningRuntimeId={runtime}
                       namePoolText={namePoolText}

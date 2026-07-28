@@ -58,6 +58,7 @@ import { getGlobalAgentCredentialState } from "./globalAgentCredentialState";
 
 export const EMPTY_GLOBAL_CONFIG: GlobalAgentConfig = {
   env_vars: {},
+  mcp_servers: [],
   provider: null,
   model: null,
   preferred_runtime: null,
