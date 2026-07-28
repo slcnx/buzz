@@ -8,6 +8,7 @@ use rmcp::service::{RoleClient, RunningService};
 use rmcp::transport::TokioChildProcess;
 use rmcp::ServiceError;
 use rmcp::ServiceExt;
+use serde::Serialize;
 use serde_json::{Map, Value};
 use tokio::process::Command;
 use tokio::sync::watch;
@@ -161,6 +162,28 @@ struct Entry {
     bare: String,
 }
 
+/// Serializable health state for one MCP server running inside this agent session.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum McpServerRuntimeState {
+    Healthy,
+    Recovering,
+    Exhausted,
+}
+
+/// Snapshot of one live MCP server instance. Runtime state is session-local:
+/// two agents using the same configuration have independent processes/status.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct McpServerRuntimeStatus {
+    pub server_name: String,
+    pub state: McpServerRuntimeState,
+    pub restart_attempts: u32,
+    pub retry_after_ms: Option<u64>,
+    pub last_error: Option<String>,
+    pub tool_count: usize,
+}
+
 pub struct McpRegistry {
     by_qname: HashMap<String, Entry>,
     defs: Vec<ToolDef>,
@@ -272,6 +295,115 @@ impl McpRegistry {
         self.by_qname
             .get(qname)
             .map(|e| self.servers[e.server_idx].name.as_str())
+    }
+
+    /// Return a point-in-time status for a configured server.
+    pub fn server_status(&self, name: &str) -> Result<McpServerRuntimeStatus, AgentError> {
+        let server = self.server_named(name)?;
+        let now = Instant::now();
+        let status = match &**server.client.load() {
+            ClientState::Healthy { tools, .. } => McpServerRuntimeStatus {
+                server_name: server.name.clone(),
+                state: McpServerRuntimeState::Healthy,
+                restart_attempts: 0,
+                retry_after_ms: None,
+                last_error: None,
+                tool_count: tools.len(),
+            },
+            ClientState::Dead {
+                attempts,
+                next_retry,
+                reason,
+                tools,
+            } => McpServerRuntimeStatus {
+                server_name: server.name.clone(),
+                state: if *attempts >= self.max_attempts {
+                    McpServerRuntimeState::Exhausted
+                } else {
+                    McpServerRuntimeState::Recovering
+                },
+                restart_attempts: *attempts,
+                retry_after_ms: (*next_retry > now).then(|| {
+                    next_retry
+                        .saturating_duration_since(now)
+                        .as_millis()
+                        .min(u128::from(u64::MAX)) as u64
+                }),
+                last_error: Some(reason.clone()),
+                tool_count: tools.len(),
+            },
+        };
+        Ok(status)
+    }
+
+    /// Return the currently advertised, non-hook tool definitions for one server.
+    pub fn server_tools(&self, name: &str) -> Result<Vec<ToolDef>, AgentError> {
+        let server_idx = self
+            .servers
+            .iter()
+            .position(|server| server.name == name)
+            .ok_or_else(|| unknown_server(name))?;
+        Ok(self
+            .tools()
+            .into_iter()
+            .filter(|tool| {
+                self.by_qname
+                    .get(&tool.name)
+                    .is_some_and(|entry| entry.server_idx == server_idx)
+            })
+            .collect())
+    }
+
+    /// Restart one server immediately, bypassing lazy-restart backoff/exhaustion.
+    /// The refreshed tool set becomes authoritative for filtering existing definitions.
+    pub async fn force_restart(&self, name: &str) -> Result<McpServerRuntimeStatus, AgentError> {
+        let server = self.server_named(name)?.clone();
+        let _guard = server.restart_lock.lock().await;
+        let current = server.client.load_full();
+        let (pgid, previous_tools) = match &*current {
+            ClientState::Healthy { pgid, tools, .. } => (*pgid, tools.clone()),
+            ClientState::Dead { tools, .. } => (None, tools.clone()),
+        };
+
+        if let Some(pgid) = pgid {
+            killpg(pgid, &server.name, "force_restart");
+        }
+        // Mark dead before awaiting spawn so concurrent calls cannot use the old client.
+        server.client.store(Arc::new(ClientState::Dead {
+            attempts: 0,
+            next_retry: Instant::now(),
+            reason: "manual restart in progress".to_owned(),
+            tools: previous_tools.clone(),
+        }));
+        drop(current);
+
+        match spawn_one(&server.spec, self.init_timeout).await {
+            Ok((client, pgid, tool_names, _raw_tools)) => {
+                server.client.store(Arc::new(ClientState::Healthy {
+                    client: Arc::new(client),
+                    pgid,
+                    tools: Arc::new(tool_names),
+                }));
+                self.server_status(name)
+            }
+            Err(error) => {
+                let reason = format!("manual restart failed: {error}");
+                server.client.store(Arc::new(ClientState::Dead {
+                    attempts: 1,
+                    next_retry: Instant::now() + backoff(1, self.backoff_base, self.backoff_max),
+                    reason: reason.clone(),
+                    tools: previous_tools,
+                }));
+                Err(AgentError::Mcp(reason))
+            }
+        }
+    }
+
+    fn server_named(&self, name: &str) -> Result<&Arc<Server>, AgentError> {
+        self.servers
+            .iter()
+            .find(|server| server.name == name)
+            .ok_or_else(|| unknown_server(name))
     }
 
     pub fn has(&self, qname: &str) -> bool {
@@ -708,6 +840,10 @@ impl McpRegistry {
             }
         }
     }
+}
+
+fn unknown_server(name: &str) -> AgentError {
+    AgentError::Mcp(format!("unknown MCP server '{name}'"))
 }
 
 async fn spawn_one(

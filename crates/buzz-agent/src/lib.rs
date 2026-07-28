@@ -7,7 +7,7 @@ pub mod config;
 mod handoff;
 mod hints;
 mod llm;
-mod mcp;
+pub mod mcp;
 pub mod types;
 mod wire;
 
