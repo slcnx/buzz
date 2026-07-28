@@ -1011,7 +1011,7 @@ pub fn start_managed_agent_process(
             &crate::relay::relay_ws_url_with_override(&state),
         )
     };
-    let key = ManagedAgentRuntimeKey::new(record.pubkey.clone(), &relay_url)?;
+    let (key, connection_relay_url) = spawn_relay_target(record.pubkey.clone(), &relay_url)?;
     if let Some(runtime) = runtimes.get_mut(&key) {
         if runtime
             .child
@@ -1029,7 +1029,9 @@ pub fn start_managed_agent_process(
     // Scalar PIDs are migration-only and never establish pair liveness.
     record.runtime_pid = None;
 
-    let mut process = spawn_agent_child(app, record, &key.relay_url, false, owner_hex)?;
+    // Connection authority must retain the configured spelling: relay tenants
+    // distinguish localhost from 127.0.0.1 even though pair identity does not.
+    let mut process = spawn_agent_child(app, record, &connection_relay_url, false, owner_hex)?;
     let now = now_iso();
     let receipt = super::ManagedAgentRuntimeReceipt {
         key: key.clone(),
