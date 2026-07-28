@@ -397,6 +397,7 @@ fn model_discovery_ignores_stale_record_for_linked_agent() {
         source_team: None,
         source_team_persona_slug: None,
         env_vars: BTreeMap::new(),
+        mcp_servers: Vec::new(),
         respond_to: None,
         respond_to_allowlist: Vec::new(),
         parallelism: None,

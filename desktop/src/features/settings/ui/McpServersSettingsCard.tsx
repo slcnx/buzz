@@ -193,7 +193,6 @@ function RuntimeTools({
   async function run(action: "status" | "restart" | "tools") {
     setOutput("");
     try {
-      if (agent?.status !== "running") throw new Error("Agent is not running.");
       if (action === "status") setStatus(await getMcpRuntimeStatus(target));
       if (action === "restart") setStatus(await restartMcpServer(target));
       if (action === "tools") setTools(await listMcpServerTools(target));
@@ -220,7 +219,7 @@ function RuntimeTools({
     <div className="space-y-3 border-t border-border/60 pt-5">
       <SettingsSectionHeader
         title="Runtime tools"
-        description="Inspect each agent's independent MCP process, restart it, list tools, and make a test call."
+        description="Check the Agent runtime, restart the full Agent, or open an isolated MCP probe to list and call tools."
       />
       <div className="flex flex-wrap gap-2">
         <select
@@ -277,7 +276,9 @@ function RuntimeTools({
         </Button>
         {status ? (
           <span className="text-sm">
-            {status.lifecycle}
+            {status.lifecycle} ·{" "}
+            {status.effective ? "effective" : "not effective"}
+            {status.agentRestarted ? " · agent restarted" : ""}
             {status.error ? ` — ${status.error}` : ""}
           </span>
         ) : null}

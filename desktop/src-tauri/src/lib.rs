@@ -47,10 +47,10 @@ use huddle::{
     set_voice_input_mode, speak_agent_message, start_huddle, start_stt_pipeline,
 };
 use managed_agents::{
-    backfill_persona_snapshots, ensure_nest, list_managed_agent_runtimes,
-    put_managed_agent_runtime_lifecycle, reconcile_managed_agent_runtimes,
-    restart_managed_agent_runtime, start_managed_agent_runtime, stop_managed_agent_runtime,
-    try_regenerate_nest,
+    backfill_persona_snapshots, call_mcp_server_tool, ensure_nest, get_mcp_runtime_status,
+    list_managed_agent_runtimes, list_mcp_server_tools, put_managed_agent_runtime_lifecycle,
+    reconcile_managed_agent_runtimes, restart_managed_agent_runtime, restart_mcp_server,
+    start_managed_agent_runtime, stop_managed_agent_runtime, try_regenerate_nest,
 };
 #[cfg(not(feature = "mesh-llm"))]
 use mesh_llm_stubs::*;
@@ -797,6 +797,10 @@ pub fn run() {
             restart_managed_agent_runtime,
             reconcile_managed_agent_runtimes,
             put_managed_agent_runtime_lifecycle,
+            get_mcp_runtime_status,
+            restart_mcp_server,
+            list_mcp_server_tools,
+            call_mcp_server_tool,
             create_managed_agent,
             start_managed_agent,
             stop_managed_agent,

@@ -14,6 +14,7 @@ mod env_vars;
 pub(crate) mod git_bash;
 pub(crate) mod global_config;
 mod managed_node_paths;
+mod mcp_runtime;
 mod nest;
 mod persona_avatars;
 pub(crate) mod persona_events;
@@ -56,6 +57,7 @@ pub(crate) use global_config::{
     validate_global_config, GlobalAgentConfig,
 };
 pub(crate) use managed_node_paths::*;
+pub use mcp_runtime::*;
 pub use nest::*;
 pub use personas::*;
 #[cfg(windows)]

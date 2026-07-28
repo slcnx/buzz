@@ -399,6 +399,34 @@ impl McpRegistry {
         }
     }
 
+    /// Stop every MCP transport and wait for its child process cleanup.
+    ///
+    /// This consumes the registry so callers that create short-lived probe
+    /// sessions can guarantee their subprocesses do not outlive the probe.
+    pub async fn shutdown(self) {
+        for server in &self.servers {
+            let current = server.client.swap(Arc::new(ClientState::Dead {
+                attempts: self.max_attempts,
+                next_retry: Instant::now(),
+                reason: "registry shutdown".to_owned(),
+                tools: Arc::new(Vec::new()),
+            }));
+            if let ClientState::Healthy { client, .. } = &*current {
+                client.cancellation_token().cancel();
+            }
+
+            let Ok(state) = Arc::try_unwrap(current) else {
+                continue;
+            };
+            let ClientState::Healthy { client, .. } = state else {
+                continue;
+            };
+            if let Ok(mut client) = Arc::try_unwrap(client) {
+                let _ = client.close_with_timeout(Duration::from_secs(2)).await;
+            }
+        }
+    }
+
     fn server_named(&self, name: &str) -> Result<&Arc<Server>, AgentError> {
         self.servers
             .iter()

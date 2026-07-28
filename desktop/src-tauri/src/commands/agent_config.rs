@@ -769,6 +769,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             None,
             &Default::default(),
         );
@@ -795,8 +796,14 @@ mod tests {
             ..Default::default()
         };
 
-        let surface =
-            resolve_config_surface(record, &personas, Some(goose_runtime()), None, &global);
+        let surface = resolve_config_surface(
+            record,
+            &personas,
+            Some(goose_runtime()),
+            "goose",
+            None,
+            &global,
+        );
 
         let model = surface.normalized.model.as_ref().expect("model resolved");
         assert_eq!(model.value.as_deref(), Some("global-model"));

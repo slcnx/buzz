@@ -59,6 +59,7 @@ async fn reports_status_and_filters_tools_by_server() {
 
     let error = registry.server_status("missing").unwrap_err().to_string();
     assert!(error.contains("unknown MCP server 'missing'"));
+    registry.shutdown().await;
 }
 
 #[tokio::test]
@@ -79,4 +80,5 @@ async fn force_restart_bypasses_backoff_and_restores_health() {
     assert_eq!(restarted.state, McpServerRuntimeState::Healthy);
     assert_eq!(restarted.restart_attempts, 0);
     assert_eq!(restarted.tool_count, 1);
+    registry.shutdown().await;
 }

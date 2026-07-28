@@ -448,6 +448,20 @@ pub(crate) fn configure_runtime_cli(
     }
 }
 
+/// Set the Desktop-resolved MCP transport only for the bundled `buzz-agent`.
+/// Explicitly remove any inherited parent value for other runtimes.
+fn set_buzz_agent_mcp_servers_env(
+    command: &mut std::process::Command,
+    effective_command: &str,
+    servers_json: String,
+) {
+    if known_acp_runtime(effective_command).is_some_and(|runtime| runtime.id == "buzz-agent") {
+        command.env("BUZZ_ACP_MCP_SERVERS", servers_json);
+    } else {
+        command.env_remove("BUZZ_ACP_MCP_SERVERS");
+    }
+}
+
 /// Spawn an agent process without holding any locks on records or runtimes.
 /// Returns the child process and log path on success. The caller is responsible
 /// for updating `ManagedAgentRecord` fields and inserting into the runtimes map.
@@ -509,6 +523,15 @@ pub fn spawn_agent_child(
             })?;
     let effective_command = &descriptor.command;
     let agent_args = &descriptor.args;
+    let effective_mcp_servers = super::effective_buzz_agent_mcp_servers(
+        record,
+        &personas,
+        &global.mcp_servers,
+        effective_command,
+    )?;
+    let effective_mcp_servers_json =
+        serde_json::to_string(&super::mcp_server_transport(effective_mcp_servers))
+            .map_err(|error| format!("failed to serialize effective MCP servers: {error}"))?;
 
     let log_path = super::managed_agent_runtime_log_path(app, &runtime_key)?;
     append_log_marker(

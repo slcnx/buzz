@@ -12,6 +12,8 @@ export type McpRuntimeStatus = {
   agentId: string;
   serverName: string;
   lifecycle: McpRuntimeLifecycle;
+  effective: boolean;
+  agentRestarted: boolean;
   error: string | null;
 };
 
@@ -21,11 +23,17 @@ export type McpTool = {
   inputSchema: Record<string, unknown>;
 };
 
-export type McpToolCallResult = unknown;
+export type McpToolCallResult = {
+  content: Array<
+    | { type: "text"; text: string }
+    | { type: "image"; data: string; mimeType: string }
+  >;
+  isError: boolean;
+};
 
 type McpRuntimeTarget = { agentId: string; serverName: string };
 
-/** Runtime state is per agent process, even when configuration is inherited. */
+/** Reports the owning agent runtime; child MCP process state is not observable. */
 export function getMcpRuntimeStatus(
   target: McpRuntimeTarget,
 ): Promise<McpRuntimeStatus> {
