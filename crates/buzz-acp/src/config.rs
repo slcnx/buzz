@@ -52,6 +52,34 @@ pub enum ConfigError {
     ConfigFile(String),
 }
 
+/// User-configured stdio MCP server received from desktop via
+/// `BUZZ_ACP_MCP_SERVERS`. Desktop resolves layering before serializing this
+/// transport shape.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfiguredMcpServer {
+    pub name: String,
+    pub command: String,
+    #[serde(default)]
+    pub args: Vec<String>,
+    #[serde(default)]
+    pub env: Vec<ConfiguredMcpEnvVar>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfiguredMcpEnvVar {
+    pub name: String,
+    pub value: String,
+}
+
+pub fn parse_configured_mcp_servers(
+    raw: Option<&str>,
+) -> Result<Vec<ConfiguredMcpServer>, ConfigError> {
+    let Some(raw) = raw.filter(|value| !value.trim().is_empty()) else {
+        return Ok(Vec::new());
+    };
+    serde_json::from_str(raw).map_err(|error| ConfigError::McpServers(error.to_string()))
+}
+
 #[derive(Debug, Clone, PartialEq, clap::ValueEnum)]
 pub enum SubscribeMode {
     Mentions,

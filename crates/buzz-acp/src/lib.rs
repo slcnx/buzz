@@ -4178,22 +4178,59 @@ fn build_mcp_servers(config: &Config) -> Vec<McpServer> {
                         });
                     }
                 }
-            }
-            // Forward the agent's display name so dev-mcp can use it as the git
-            // author name instead of the raw npub. Read from the process env
-            // rather than Config: this is a pass-through of a contract owned
-            // upstream, and absent simply means dev-mcp falls back to the npub.
-            if let Ok(display_name) = std::env::var("BUZZ_ACP_DISPLAY_NAME") {
-                if !display_name.is_empty() {
-                    env.push(EnvVar {
-                        name: "BUZZ_ACP_DISPLAY_NAME".into(),
-                        value: display_name,
-                    });
+                // Forward the agent's display name so dev-mcp can use it as the git
+                // author name instead of the raw npub. Read from the process env
+                // rather than Config: this is a pass-through of a contract owned
+                // upstream, and absent simply means dev-mcp falls back to the npub.
+                if let Ok(display_name) = std::env::var("BUZZ_ACP_DISPLAY_NAME") {
+                    if !display_name.is_empty() {
+                        env.push(EnvVar {
+                            name: "BUZZ_ACP_DISPLAY_NAME".into(),
+                            value: display_name,
+                        });
+                    }
                 }
-            }
-            env
-        },
-    }]
+                env
+            },
+        });
+    }
+    servers.extend(
+        config
+            .configured_mcp_servers
+            .iter()
+            .map(configured_mcp_server),
+    );
+    servers
+}
+
+fn configured_mcp_server(server: &config::ConfiguredMcpServer) -> McpServer {
+    // Shell-word split: users may type `uv run "/My Bot/jambot"` as the command.
+    // shlex handles quoting so paths with spaces survive. On parse failure
+    // (unmatched quote), pass the whole string as the command verbatim.
+    let (command, prefix_args) = match shlex::split(&server.command) {
+        Some(mut tokens) if !tokens.is_empty() => {
+            let cmd = tokens.remove(0);
+            (cmd, tokens)
+        }
+        _ => (server.command.clone(), vec![]),
+    };
+
+    let mut args = prefix_args;
+    args.extend(server.args.iter().cloned());
+
+    McpServer {
+        name: server.name.clone(),
+        command,
+        args,
+        env: server
+            .env
+            .iter()
+            .map(|variable| EnvVar {
+                name: variable.name.clone(),
+                value: variable.value.clone(),
+            })
+            .collect(),
+    }
 }
 
 #[cfg(test)]

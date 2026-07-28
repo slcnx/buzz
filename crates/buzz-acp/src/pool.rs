@@ -910,7 +910,16 @@ async fn create_session_and_apply_model(
             );
             agent
                 .acp
-                .session_new_full(&ctx.cwd, vec![], combined_system_prompt.as_deref())
+                .session_new_full(
+                    &ctx.cwd,
+                    vec![],
+                    session_new_system_prompt(
+                        is_goose,
+                        agent.protocol_version,
+                        combined_system_prompt.as_deref(),
+                    ),
+                    session_title.as_deref(),
+                )
                 .await?
         }
         Err(e) => return Err(e),
