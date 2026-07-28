@@ -111,7 +111,7 @@ function McpServerRow({
 }
 
 /**
- * Read-only row for an *effective merged* buzz-agent MCP server — "what
+ * Read-only row for an *effective merged* Desktop-managed MCP server — "what
  * runs." Shows the resolved command line rather than `kind`/enabled state
  * (unlike `McpServerRow`), since every entry here is already enabled by
  * contract (`RuntimeConfigSurface.buzzAgentMcpServers` is enabled-only).

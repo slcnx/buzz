@@ -142,7 +142,7 @@ fn materializing_runtime_keeps_hash_stable() {
 }
 
 #[test]
-fn buzz_agent_mcp_edit_changes_hash_but_other_runtime_ignores_it() {
+fn managed_mcp_edit_changes_known_runtime_hash_but_unknown_runtime_ignores_it() {
     let mut buzz_agent = record();
     buzz_agent.runtime = Some("buzz-agent".into());
     let mut edited = buzz_agent.clone();
@@ -165,11 +165,11 @@ fn buzz_agent_mcp_edit_changes_hash_but_other_runtime_ignores_it() {
         )
     );
 
-    let mut goose = buzz_agent;
+    let mut goose = buzz_agent.clone();
     goose.runtime = Some("goose".into());
     let mut goose_edited = goose.clone();
     goose_edited.mcp_servers = vec![mcp_server("local-mcp")];
-    assert_eq!(
+    assert_ne!(
         spawn_config_hash(
             &goose,
             &[],
@@ -179,6 +179,28 @@ fn buzz_agent_mcp_edit_changes_hash_but_other_runtime_ignores_it() {
         ),
         spawn_config_hash(
             &goose_edited,
+            &[],
+            &[],
+            "wss://ws.example",
+            &GlobalAgentConfig::default()
+        )
+    );
+
+    let mut custom = buzz_agent;
+    custom.runtime = None;
+    custom.agent_command_override = Some("custom-agent".into());
+    let mut custom_edited = custom.clone();
+    custom_edited.mcp_servers = vec![mcp_server("local-mcp")];
+    assert_eq!(
+        spawn_config_hash(
+            &custom,
+            &[],
+            &[],
+            "wss://ws.example",
+            &GlobalAgentConfig::default()
+        ),
+        spawn_config_hash(
+            &custom_edited,
             &[],
             &[],
             "wss://ws.example",

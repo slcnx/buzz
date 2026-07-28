@@ -10,10 +10,10 @@ use tauri::{AppHandle, Manager};
 use tokio::sync::watch;
 
 use super::{
-    default_agent_workdir, effective_buzz_agent_mcp_servers, load_global_agent_config,
+    default_agent_workdir, effective_managed_mcp_servers, load_global_agent_config,
     load_managed_agents, load_personas, record_agent_command, restart_managed_agent_runtime,
-    workspace_pair_key, BackendKind, ManagedAgentRecord, ManagedAgentRuntimeLifecycle,
-    McpServerConfig,
+    supports_managed_mcp_transport, workspace_pair_key, BackendKind, ManagedAgentRecord,
+    ManagedAgentRuntimeLifecycle, McpServerConfig,
 };
 use crate::app_state::AppState;
 
@@ -96,13 +96,12 @@ fn resolve_target(
         .ok_or_else(|| format!("agent {agent_id} not found"))?;
     let personas = load_personas(app)?;
     let command = record_agent_command(&record, &personas);
-    let supported = record.backend == BackendKind::Local
-        && super::known_acp_runtime(&command).map(|runtime| runtime.id) == Some("buzz-agent");
+    let supported =
+        record.backend == BackendKind::Local && supports_managed_mcp_transport(&command);
     let global = load_global_agent_config(app)?;
-    let server =
-        effective_buzz_agent_mcp_servers(&record, &personas, &global.mcp_servers, &command)?
-            .into_iter()
-            .find(|server| server.name == server_name);
+    let server = effective_managed_mcp_servers(&record, &personas, &global.mcp_servers, &command)?
+        .into_iter()
+        .find(|server| server.name == server_name);
 
     Ok(ResolvedTarget {
         record,

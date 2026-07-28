@@ -177,8 +177,8 @@ fn resolve_config_surface(
         baseline.as_ref().map(|(m, o)| (m.as_str(), o.clone())),
     );
 
-    if runtime_meta.is_some_and(|m| m.id == "buzz-agent") {
-        surface.buzz_agent_mcp_servers = crate::managed_agents::effective_buzz_agent_mcp_servers(
+    if crate::managed_agents::supports_managed_mcp_transport(effective_command) {
+        surface.buzz_agent_mcp_servers = crate::managed_agents::effective_managed_mcp_servers(
             &record,
             personas,
             &global.mcp_servers,
@@ -1009,9 +1009,9 @@ mod tests {
         }
     }
 
-    /// The buzz-agent runtime surfaces its effective-merged MCP servers onto
+    /// Known ACP runtimes surface their effective-merged Desktop MCP servers onto
     /// `RuntimeConfigSurface.buzz_agent_mcp_servers`, matching what
-    /// `effective_buzz_agent_mcp_servers` (the spawn-time source of truth)
+    /// `effective_managed_mcp_servers` (the spawn-time source of truth)
     /// would compute for the same record/persona/global layers.
     #[test]
     fn buzz_agent_runtime_surfaces_effective_merged_mcp_servers() {
@@ -1068,11 +1068,10 @@ mod tests {
         assert!(surface.buzz_agent_mcp_servers.is_empty());
     }
 
-    /// Non-buzz-agent runtimes (e.g. goose) must never populate
-    /// `buzz_agent_mcp_servers` — they surface their servers via `extensions`
-    /// instead. Fails against a variant that populates the field unconditionally.
+    /// Known ACP runtimes receive Desktop-managed MCP servers through buzz-acp,
+    /// alongside any runtime-native servers surfaced via `extensions`.
     #[test]
-    fn non_buzz_agent_runtime_leaves_mcp_surface_empty() {
+    fn goose_runtime_surfaces_desktop_managed_mcp_servers() {
         let mut record = agent_record();
         record.mcp_servers = vec![mcp_server("agent-server", "agent-cmd", true)];
         let personas = vec![persona_with_model("persona-model")];
@@ -1086,7 +1085,8 @@ mod tests {
             &Default::default(),
         );
 
-        assert!(surface.buzz_agent_mcp_servers.is_empty());
+        assert_eq!(surface.buzz_agent_mcp_servers.len(), 1);
+        assert_eq!(surface.buzz_agent_mcp_servers[0].name, "agent-server");
     }
 
     // ── get_baked_build_env / is_secret_key tests ──────────────────────────

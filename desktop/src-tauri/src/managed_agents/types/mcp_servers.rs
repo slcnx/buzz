@@ -231,17 +231,20 @@ pub(crate) fn merge_mcp_servers(
     Ok(effective)
 }
 
-/// Resolve MCP configuration only for the bundled `buzz-agent` runtime.
-/// Other ACP runtimes keep their MCP configuration in their own config files.
-pub(crate) fn effective_buzz_agent_mcp_servers(
+/// Whether Desktop-managed MCP servers can be transported through `buzz-acp`
+/// to this runtime's ACP `session/new` request.
+pub(crate) fn supports_managed_mcp_transport(effective_command: &str) -> bool {
+    super::super::known_acp_runtime(effective_command).is_some()
+}
+
+/// Resolve the Desktop-managed MCP configuration for a known ACP runtime.
+pub(crate) fn effective_managed_mcp_servers(
     record: &super::ManagedAgentRecord,
     personas: &[super::AgentDefinition],
     global: &[McpServerConfig],
     effective_command: &str,
 ) -> Result<Vec<McpServerConfig>, String> {
-    if super::super::known_acp_runtime(effective_command).map(|runtime| runtime.id)
-        != Some("buzz-agent")
-    {
+    if !supports_managed_mcp_transport(effective_command) {
         return Ok(Vec::new());
     }
     let definition = record
@@ -256,17 +259,15 @@ pub(crate) fn effective_buzz_agent_mcp_servers(
 /// Validate that the prospective effective-merge count stays within the
 /// [`MAX_USER_MCP_SERVERS`] cap. Called at agent create/update to prevent a
 /// record that passes per-layer validation but exceeds the cap after the
-/// global < definition < agent merge. Non–buzz-agent runtimes skip the check
-/// (they don't use `BUZZ_ACP_MCP_SERVERS`).
+/// global < definition < agent merge. Unknown runtimes skip the check because
+/// Desktop does not transport managed MCP servers to them.
 pub(crate) fn validate_effective_mcp_cap(
     record: &super::ManagedAgentRecord,
     personas: &[super::AgentDefinition],
     global: &[McpServerConfig],
     effective_command: &str,
 ) -> Result<(), String> {
-    // effective_buzz_agent_mcp_servers returns Ok(empty) for non-buzz-agent
-    // runtimes, so the cap check only fires for buzz-agent.
-    effective_buzz_agent_mcp_servers(record, personas, global, effective_command)?;
+    effective_managed_mcp_servers(record, personas, global, effective_command)?;
     Ok(())
 }
 
@@ -275,7 +276,8 @@ pub(crate) fn validate_effective_mcp_cap(
 /// save and persona update to prevent an inherited-layer mutation that would
 /// silently push an existing agent over the cap.
 ///
-/// Non–buzz-agent runtimes are skipped (they don't use `BUZZ_ACP_MCP_SERVERS`).
+/// Unknown runtimes are skipped because Desktop does not transport managed
+/// MCP servers to them.
 /// Returns the first offending agent's name in the error message.
 pub(crate) fn validate_effective_mcp_cap_for_records(
     records: &[super::ManagedAgentRecord],
@@ -285,7 +287,7 @@ pub(crate) fn validate_effective_mcp_cap_for_records(
     for record in records {
         let effective_cmd = crate::managed_agents::record_agent_command(record, personas);
         if let Err(merge_err) =
-            effective_buzz_agent_mcp_servers(record, personas, global, &effective_cmd)
+            effective_managed_mcp_servers(record, personas, global, &effective_cmd)
         {
             return Err(format!(
                 "saving would push agent `{}` over the MCP server limit: {merge_err}",

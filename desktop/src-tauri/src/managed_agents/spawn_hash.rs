@@ -152,6 +152,17 @@ pub(crate) fn spawn_config_hash(
     record.idle_timeout_seconds.hash(&mut hasher);
     record.max_turn_duration_seconds.hash(&mut hasher);
     record.parallelism.hash(&mut hasher);
+    let managed_mcp_transport = super::effective_managed_mcp_servers(
+        record,
+        personas,
+        &global.mcp_servers,
+        &descriptor.command,
+    )
+    .and_then(|servers| {
+        serde_json::to_string(&super::mcp_server_transport(servers))
+            .map_err(|error| error.to_string())
+    });
+    managed_mcp_transport.hash(&mut hasher);
 
     hasher.finish()
 }

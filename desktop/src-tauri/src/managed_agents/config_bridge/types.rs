@@ -138,10 +138,9 @@ pub struct RuntimeConfigSurface {
     pub normalized: NormalizedConfig,
     pub advanced: Vec<ConfigField>,
     pub extensions: Vec<ExtensionEntry>,
-    /// Effective (global < definition < agent merged, enabled-only) buzz-agent
-    /// MCP servers — "what runs." Populated only for the `buzz-agent` runtime;
-    /// empty for every other runtime, which surface their servers via
-    /// `extensions` instead.
+    /// Effective (global < definition < agent merged, enabled-only)
+    /// Desktop-managed MCP servers — "what runs." The wire name is retained
+    /// for compatibility; runtime-native servers are surfaced via `extensions`.
     #[serde(default)]
     pub buzz_agent_mcp_servers: Vec<McpServerConfig>,
     pub sources: ConfigSourceReport,

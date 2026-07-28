@@ -448,14 +448,14 @@ pub(crate) fn configure_runtime_cli(
     }
 }
 
-/// Set the Desktop-resolved MCP transport only for the bundled `buzz-agent`.
-/// Explicitly remove any inherited parent value for other runtimes.
-fn set_buzz_agent_mcp_servers_env(
+/// Set the Desktop-resolved MCP transport for known ACP runtimes. Explicitly
+/// remove any inherited parent value for unknown runtimes.
+fn set_managed_mcp_servers_env(
     command: &mut std::process::Command,
     effective_command: &str,
     servers_json: String,
 ) {
-    if known_acp_runtime(effective_command).is_some_and(|runtime| runtime.id == "buzz-agent") {
+    if super::supports_managed_mcp_transport(effective_command) {
         command.env("BUZZ_ACP_MCP_SERVERS", servers_json);
     } else {
         command.env_remove("BUZZ_ACP_MCP_SERVERS");
@@ -523,7 +523,7 @@ pub fn spawn_agent_child(
             })?;
     let effective_command = &descriptor.command;
     let agent_args = &descriptor.args;
-    let effective_mcp_servers = super::effective_buzz_agent_mcp_servers(
+    let effective_mcp_servers = super::effective_managed_mcp_servers(
         record,
         &personas,
         &global.mcp_servers,
@@ -607,7 +607,7 @@ pub fn spawn_agent_child(
     command.env("BUZZ_ACP_LAZY_POOL", if lazy { "true" } else { "false" });
     command.env("BUZZ_ACP_AGENT_COMMAND", &resolved_agent_command);
     command.env("BUZZ_ACP_AGENT_ARGS", agent_args.join(","));
-    set_buzz_agent_mcp_servers_env(&mut command, &effective_command, effective_mcp_servers_json);
+    set_managed_mcp_servers_env(&mut command, effective_command, effective_mcp_servers_json);
     match &resolved_mcp_command {
         Some(mcp_cmd) => {
             command.env("BUZZ_ACP_MCP_COMMAND", mcp_cmd);

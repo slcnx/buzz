@@ -859,14 +859,17 @@ fn effective_cap_rejects_rename_unmask() {
 }
 
 #[test]
-fn effective_cap_skips_non_buzz_agent_runtime() {
+fn effective_cap_applies_to_codex_runtime() {
     let global: Vec<_> = (0..=MAX_USER_MCP_SERVERS)
         .map(|i| mcp_server(&format!("global-{i}"), "cmd", true))
         .collect();
     let record = buzz_agent_record(vec![mcp_server("local-0", "cmd", true)]);
-    // Non-buzz-agent runtime → effective check returns Ok (skip).
-    validate_effective_mcp_cap(&record, &[], &global, "goose")
-        .expect("non-buzz-agent runtime should skip the cap");
+    let error = validate_effective_mcp_cap(&record, &[], &global, "codex-acp")
+        .expect_err("Codex agents receive Desktop MCP servers through buzz-acp");
+    assert!(
+        error.contains("effective MCP server count"),
+        "error: {error}"
+    );
 }
 
 // ── validate_effective_mcp_cap_for_records — inherited-layer gates ───────
@@ -962,16 +965,16 @@ fn inherited_gate_rejects_persona_unmask_pushing_agent_over_cap() {
 }
 
 #[test]
-fn inherited_gate_skips_non_buzz_agent_records() {
-    // A goose-runtime agent should be unaffected by the cap.
+fn inherited_gate_skips_unknown_runtime_records() {
+    // An unknown runtime does not receive Desktop-managed MCP servers.
     let mut record = buzz_agent_record(vec![mcp_server("local-0", "cmd", true)]);
     // record_agent_command resolves via agent_command_override first.
-    record.agent_command_override = Some("goose".to_string());
+    record.agent_command_override = Some("custom-agent".to_string());
     let prospective_global: Vec<_> = (0..=MAX_USER_MCP_SERVERS)
         .map(|i| mcp_server(&format!("global-{i}"), "cmd", true))
         .collect();
     validate_effective_mcp_cap_for_records(&[record], &[], &prospective_global)
-        .expect("non-buzz-agent runtime should skip the cap");
+        .expect("unknown runtime should skip the cap");
 }
 
 #[test]

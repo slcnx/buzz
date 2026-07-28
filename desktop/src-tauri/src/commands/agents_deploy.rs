@@ -89,7 +89,7 @@ pub(super) fn build_deploy_payload(
     let effective_provider = cfg.provider.value;
     let effective_prompt = cfg.system_prompt.value;
     let effective_command = crate::managed_agents::record_agent_command(record, &personas);
-    let effective_mcp_servers = crate::managed_agents::effective_buzz_agent_mcp_servers(
+    let effective_mcp_servers = crate::managed_agents::effective_managed_mcp_servers(
         record,
         &personas,
         &global_config.mcp_servers,
