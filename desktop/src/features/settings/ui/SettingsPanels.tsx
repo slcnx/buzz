@@ -13,6 +13,7 @@ import {
   LayoutTemplate,
   MessagesSquare,
   MonitorCog,
+  Network,
   Moon,
   ShieldAlert,
   Smartphone,
@@ -74,6 +75,7 @@ import { ExperimentalFeaturesCard } from "./ExperimentalFeaturesCard";
 import { KeyboardShortcutsCard } from "./KeyboardShortcutsCard";
 import { MeshComputeSettingsCard } from "@/features/mesh-compute/ui/MeshComputeSettingsCard";
 import { MobilePairingCard } from "./MobilePairingCard";
+import { McpServersSettingsCard } from "./McpServersSettingsCard";
 import { ModerationQueueCard } from "./ModerationQueueCard";
 import { NotificationSettingsCard } from "./NotificationSettingsCard";
 import { PreventSleepSettingsCard } from "./PreventSleepSettingsCard";
@@ -90,6 +92,7 @@ export type SettingsSection =
   | "notifications"
   | "experimental"
   | "agents"
+  | "mcp"
   | "channel-templates"
   | "compute"
   | "appearance"
@@ -109,6 +112,7 @@ const SETTINGS_SECTION_VALUES: readonly SettingsSection[] = [
   "notifications",
   "experimental",
   "agents",
+  "mcp",
   "channel-templates",
   "compute",
   "appearance",
@@ -177,6 +181,12 @@ export const settingsSections: SettingsSectionDescriptor[] = [
     value: "agents",
     label: "Agents",
     icon: Bot,
+    featureGate: "managed-agents",
+  },
+  {
+    value: "mcp",
+    label: "MCP servers",
+    icon: Network,
     featureGate: "managed-agents",
   },
   {
@@ -819,6 +829,8 @@ export function renderSettingsSection(
           <AgentDefaultsSettingsCard />
         </div>
       );
+    case "mcp":
+      return <McpServersSettingsCard />;
     case "channel-templates":
       return <ChannelTemplatesSettingsCard />;
     case "compute":
