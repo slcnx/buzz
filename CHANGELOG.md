@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.4.26.1
+
+- Add layered MCP server configuration for global defaults, personas, and managed agents; higher-level disabled entries mask inherited servers.
+- Add honest MCP runtime operations in Desktop: coarse agent status, full runtime-pair restart, and isolated tool-list/tool-call probes using the agent's effective configuration.
+- Restore the ACP transport that passes Desktop-resolved MCP servers into new agent sessions, including quoted command parsing and spawn fallback behavior.
+- Document how to start and stop a local Buzz relay on Windows with PowerShell and Docker Desktop.
+
+
 ## v0.4.26
 
 - Style mobile pairing QR codes ([#2775](https://github.com/block/buzz/pull/2775)) ([`50655ac09`](https://github.com/block/buzz/commit/50655ac097fbf1a7db1a5284dccc7e2a0b0f1bfc))

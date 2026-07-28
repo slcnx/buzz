@@ -162,9 +162,40 @@ For agents, set `BUZZ_PRIVATE_KEY` and use [`buzz-cli`](crates/buzz-cli) — JSO
 
 ## Windows prerequisites
 
-The agent shell tool runs commands under bash. On macOS and Linux that's already there; on Windows you need to bring it.
+Install [Docker Desktop](https://docs.docker.com/desktop/setup/install/windows-install/)
+with Linux containers enabled, [Rust](https://rustup.rs/), and
+[Git for Windows](https://git-scm.com/download/win). Git for Windows includes
+Git Bash, which is used by agent shell tools at runtime. The relay itself can
+be started from PowerShell.
 
-Install [Git for Windows](https://git-scm.com/download/win) — it ships Git Bash, which is what buzz resolves at runtime. Once it's installed, everything works the same as on other platforms.
+### Start a local relay on Windows
+
+Run these commands in PowerShell:
+
+```powershell
+git clone https://github.com/block/buzz.git
+cd buzz
+docker compose up -d
+cargo run -p buzz-relay
+```
+
+Docker Compose starts Postgres, Redis, MinIO, and the other development
+dependencies. `cargo run` builds the relay on first use, applies database
+migrations at startup, and keeps the relay in the foreground at
+`ws://localhost:3000`; keep that PowerShell window open while using the desktop
+app. The relay health check is available at `http://localhost:8080/health`.
+
+On later runs, open PowerShell in the repository and run:
+
+```powershell
+docker compose up -d
+cargo run -p buzz-relay
+```
+
+Press `Ctrl+C` to stop the relay. Run `docker compose down` to stop its Docker
+services without deleting local data. If Windows Firewall prompts for access,
+private network access is sufficient for local use; public network access is
+only needed when other machines must reach this relay.
 
 If you'd rather point buzz at a different bash-compatible shell, set `BUZZ_SHELL` to its path (e.g. `BUZZ_SHELL=C:\path\to\bash.exe`). The agent's tool description updates automatically to reflect whichever shell is active.
 
