@@ -13,6 +13,7 @@ import type {
   HomeFeedResponse,
   ManagedAgent,
   ManagedAgentBackend,
+  McpServerConfig,
   RelayAgent,
   RelayMember,
   RelayMemberRole,
@@ -140,6 +141,7 @@ export type RawManagedAgent = {
   persona_orphaned: boolean;
   needs_restart: boolean;
   env_vars?: Record<string, string>;
+  mcp_servers?: McpServerConfig[];
   status: ManagedAgent["status"];
   pid: number | null;
   created_at: string;
@@ -721,6 +723,7 @@ export function fromRawManagedAgent(agent: RawManagedAgent): ManagedAgent {
     personaOrphaned: agent.persona_orphaned ?? false,
     needsRestart: agent.needs_restart ?? false,
     envVars: agent.env_vars ?? {},
+    mcpServers: agent.mcp_servers ?? [],
     status: agent.status,
     pid: agent.pid,
     createdAt: agent.created_at,
@@ -888,6 +891,7 @@ export async function createManagedAgent(input: CreateManagedAgentInput) {
         model: input.model,
         provider: input.provider,
         envVars: input.envVars ?? {},
+        mcpServers: input.mcpServers ?? [],
         spawnAfterCreate: input.spawnAfterCreate,
         startOnAppLaunch: input.startOnAppLaunch,
         backend: input.backend,

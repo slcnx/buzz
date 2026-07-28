@@ -16,6 +16,7 @@ import { Textarea } from "@/shared/ui/textarea";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import { PersonaDropdownField } from "./PersonaDropdownField";
 import type { EnvVarsValue } from "./EnvVarsEditor";
+import type { McpServersValue } from "./McpServersEditor";
 import { PersonaAdvancedFields } from "./PersonaAdvancedFields";
 import { PersonaModelField } from "./PersonaModelField";
 import { runtimeAvailabilityWarning } from "./runtimeAvailabilityWarning";
@@ -139,6 +140,7 @@ export function AgentDefinitionDialog({
     React.useState(false);
   const [namePoolText, setNamePoolText] = React.useState("");
   const [envVars, setEnvVars] = React.useState<EnvVarsValue>({});
+  const [mcpServers, setMcpServers] = React.useState<McpServersValue>([]);
   const [behaviorDraft, setBehaviorDraft] = React.useState(
     emptyPersonaBehaviorDraft,
   );
@@ -204,6 +206,8 @@ export function AgentDefinitionDialog({
         : "";
     const nextEnvVars =
       "envVars" in initialValues ? (initialValues.envVars ?? {}) : {};
+    const nextMcpServers =
+      "mcpServers" in initialValues ? (initialValues.mcpServers ?? []) : [];
     const nextBehaviorDraft = draftFromBehavior(initialValues.behavior);
     behaviorSeedRef.current = draftFromBehavior(initialValues.behavior);
     setBehaviorDraft(nextBehaviorDraft);
@@ -340,6 +344,7 @@ export function AgentDefinitionDialog({
       provider: providerForSubmit,
       namePool: namePoolInput,
       envVars,
+      mcpServers,
       behavior: behaviorForSubmit(
         behaviorDraft,
         behaviorSeedRef.current,
@@ -1010,6 +1015,7 @@ export function AgentDefinitionDialog({
                       namePoolText={namePoolText}
                       onBehaviorDraftChange={setBehaviorDraft}
                       onEnvVarsChange={setEnvVars}
+                      onMcpServersChange={setMcpServers}
                       onNamePoolTextChange={setNamePoolText}
                       provider={effectiveProvider}
                       requiredEnvKeys={advancedRequiredEnvKeys}

@@ -877,7 +877,7 @@ async fn create_session_and_apply_model(
         .as_deref()
         .map(|agent_name| compose_session_title(agent_name, channel_name));
 
-    let resp = agent
+    let resp = match agent
         .acp
         .session_new_full(
             &ctx.cwd,
@@ -889,7 +889,32 @@ async fn create_session_and_apply_model(
             ),
             session_title.as_deref(),
         )
-        .await?;
+        .await
+    {
+        Ok(r) => r,
+        Err(AcpError::AgentError { ref message, .. })
+            if !ctx.mcp_servers.is_empty() && message.to_lowercase().contains("mcp") =>
+        {
+            // MCP spawn failure — retry without MCP servers so the agent can
+            // still respond. Surface the original error as a warning.
+            tracing::warn!(
+                target: "pool::mcp",
+                "MCP server spawn failed ({message}); retrying session without MCP servers"
+            );
+            agent.acp.observe(
+                "mcp_spawn_warning",
+                serde_json::json!({
+                    "error": message,
+                    "action": "retried_without_mcp_servers",
+                }),
+            );
+            agent
+                .acp
+                .session_new_full(&ctx.cwd, vec![], combined_system_prompt.as_deref())
+                .await?
+        }
+        Err(e) => return Err(e),
+    };
 
     if is_goose && agent.goose_system_prompt_supported != Some(false) {
         if let Some(prompt) = combined_system_prompt.as_deref() {

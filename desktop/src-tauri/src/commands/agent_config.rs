@@ -63,6 +63,7 @@ fn resolve_config_surface(
     mut record: ManagedAgentRecord,
     personas: &[AgentDefinition],
     runtime_meta: Option<&KnownAcpRuntime>,
+    effective_command: &str,
     session_cache: Option<&SessionConfigCache>,
     global: &GlobalAgentConfig,
 ) -> RuntimeConfigSurface {
@@ -175,6 +176,19 @@ fn resolve_config_surface(
         session_cache,
         baseline.as_ref().map(|(m, o)| (m.as_str(), o.clone())),
     );
+
+    if runtime_meta.is_some_and(|m| m.id == "buzz-agent") {
+        surface.buzz_agent_mcp_servers = crate::managed_agents::effective_buzz_agent_mcp_servers(
+            &record,
+            personas,
+            &global.mcp_servers,
+            effective_command,
+        )
+        .unwrap_or_else(|error| {
+            eprintln!("buzz-desktop: invalid persisted MCP server configuration: {error}");
+            Vec::new()
+        });
+    }
 
     // Re-tag persona-sourced fields from BuzzExplicit to PersonaDefault.
     if !had_prompt {
@@ -390,6 +404,7 @@ pub async fn get_agent_config_surface(
         record,
         &personas,
         runtime_meta,
+        &effective_cmd,
         session_cache.as_ref(),
         &global,
     ))
@@ -643,6 +658,7 @@ mod tests {
 
     fn agent_record() -> ManagedAgentRecord {
         ManagedAgentRecord {
+            mcp_servers: vec![],
             pubkey: "agent".to_string(),
             name: "Agent".to_string(),
             persona_id: Some("persona-1".to_string()),
@@ -699,6 +715,7 @@ mod tests {
 
     fn persona_with_model(model: &str) -> AgentDefinition {
         AgentDefinition {
+            mcp_servers: vec![],
             id: "persona-1".to_string(),
             display_name: "Persona".to_string(),
             avatar_url: None,
@@ -800,6 +817,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             None,
             &Default::default(),
         );
@@ -827,6 +845,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             Some(&cache),
             &Default::default(),
         );
@@ -855,6 +874,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             Some(&cache),
             &Default::default(),
         );
@@ -882,6 +902,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             Some(&cache),
             &Default::default(),
         );
@@ -906,6 +927,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             Some(&cache),
             &Default::default(),
         );
@@ -933,6 +955,7 @@ mod tests {
         let personas: Vec<AgentDefinition> = vec![];
         let cache = session_cache("model-y", true);
         let global = crate::managed_agents::GlobalAgentConfig {
+            mcp_servers: vec![],
             model: Some("global-model".to_string()),
             ..Default::default()
         };
@@ -941,6 +964,7 @@ mod tests {
             record,
             &personas,
             Some(goose_runtime()),
+            "goose",
             Some(&cache),
             &global,
         );
@@ -960,6 +984,102 @@ mod tests {
             Some(ConfigOrigin::GlobalDefault),
             "override baseline origin must be GlobalDefault, not PersonaDefault or BuzzExplicit"
         );
+    }
+
+    // ── buzz_agent_mcp_servers surface tests ────────────────────────────────
+
+    fn mcp_server(
+        name: &str,
+        command: &str,
+        enabled: bool,
+    ) -> crate::managed_agents::McpServerConfig {
+        crate::managed_agents::McpServerConfig {
+            name: name.to_string(),
+            command: command.to_string(),
+            args: vec![],
+            env: vec![],
+            enabled,
+        }
+    }
+
+    /// The buzz-agent runtime surfaces its effective-merged MCP servers onto
+    /// `RuntimeConfigSurface.buzz_agent_mcp_servers`, matching what
+    /// `effective_buzz_agent_mcp_servers` (the spawn-time source of truth)
+    /// would compute for the same record/persona/global layers.
+    #[test]
+    fn buzz_agent_runtime_surfaces_effective_merged_mcp_servers() {
+        let mut record = agent_record();
+        record.persona_id = None;
+        record.mcp_servers = vec![mcp_server("agent-server", "agent-cmd", true)];
+        let personas: Vec<AgentDefinition> = vec![];
+        let global = crate::managed_agents::GlobalAgentConfig {
+            mcp_servers: vec![mcp_server("global-server", "global-cmd", true)],
+            ..Default::default()
+        };
+
+        let surface = resolve_config_surface(
+            record,
+            &personas,
+            known_acp_runtime("buzz-agent"),
+            "buzz-agent",
+            None,
+            &global,
+        );
+
+        let mut names: Vec<&str> = surface
+            .buzz_agent_mcp_servers
+            .iter()
+            .map(|s| s.name.as_str())
+            .collect();
+        names.sort_unstable();
+        assert_eq!(names, vec!["agent-server", "global-server"]);
+    }
+
+    /// A disabled agent-layer entry masks a same-named global entry — the
+    /// merged effective list must NOT include it. Fails against a variant
+    /// that surfaces the raw record layer instead of the merged result.
+    #[test]
+    fn buzz_agent_disabled_override_masks_inherited_server_in_surface() {
+        let mut record = agent_record();
+        record.persona_id = None;
+        record.mcp_servers = vec![mcp_server("shared", "", false)];
+        let personas: Vec<AgentDefinition> = vec![];
+        let global = crate::managed_agents::GlobalAgentConfig {
+            mcp_servers: vec![mcp_server("shared", "global-cmd", true)],
+            ..Default::default()
+        };
+
+        let surface = resolve_config_surface(
+            record,
+            &personas,
+            known_acp_runtime("buzz-agent"),
+            "buzz-agent",
+            None,
+            &global,
+        );
+
+        assert!(surface.buzz_agent_mcp_servers.is_empty());
+    }
+
+    /// Non-buzz-agent runtimes (e.g. goose) must never populate
+    /// `buzz_agent_mcp_servers` — they surface their servers via `extensions`
+    /// instead. Fails against a variant that populates the field unconditionally.
+    #[test]
+    fn non_buzz_agent_runtime_leaves_mcp_surface_empty() {
+        let mut record = agent_record();
+        record.mcp_servers = vec![mcp_server("agent-server", "agent-cmd", true)];
+        let personas = vec![persona_with_model("persona-model")];
+
+        let surface = resolve_config_surface(
+            record,
+            &personas,
+            Some(goose_runtime()),
+            "goose",
+            None,
+            &Default::default(),
+        );
+
+        assert!(surface.buzz_agent_mcp_servers.is_empty());
     }
 
     // ── get_baked_build_env / is_secret_key tests ──────────────────────────

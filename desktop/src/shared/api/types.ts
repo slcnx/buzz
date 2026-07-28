@@ -377,6 +377,9 @@ export type ManagedAgent = {
   needsRestart: boolean;
   /** Per-agent env vars. Layered on top of persona envVars. */
   envVars: Record<string, string>;
+  /** Local-only MCP server layer. Layered on top of persona mcpServers
+   * (global < definition < agent, by name). */
+  mcpServers: McpServerConfig[];
   status: "running" | "stopped" | "deployed" | "not_deployed";
   pid: number | null;
   createdAt: string;
@@ -450,6 +453,8 @@ export type CreateManagedAgentInput = {
   model?: string;
   provider?: string;
   envVars?: Record<string, string>;
+  /** Local-only MCP server layer. Absent = empty (matches backend default). */
+  mcpServers?: McpServerConfig[];
   spawnAfterCreate?: boolean;
   startOnAppLaunch?: boolean;
   backend?: ManagedAgentBackend;
@@ -689,6 +694,24 @@ export type ConfigSourceReport = {
 
 export type ExtensionEntry = { name: string; kind: string; enabled: boolean };
 
+/** An env var passed to an MCP server subprocess. Mirrors the Rust `McpServerEnvVar`. */
+export type McpServerEnvVar = { name: string; value: string };
+
+/**
+ * A locally persisted stdio MCP server configuration, layered
+ * `global < definition < agent` by name. Mirrors the Rust `McpServerConfig`.
+ * STDIO only — no SSE/HTTP, no timeout, no headers.
+ */
+export type McpServerConfig = {
+  name: string;
+  /** Required for enabled servers. Disabled entries may omit it — their
+   * only purpose is to mask a lower-precedence server by name. */
+  command: string;
+  args: string[];
+  env: McpServerEnvVar[];
+  enabled: boolean;
+};
+
 export type NormalizedConfig = {
   model: NormalizedField | null;
   provider: NormalizedField | null;
@@ -706,6 +729,10 @@ export type RuntimeConfigSurface = {
   normalized: NormalizedConfig;
   advanced: ConfigField[];
   extensions: ExtensionEntry[];
+  /** Effective (global < definition < agent merged, enabled-only) buzz-agent
+   * MCP servers — "what runs." Empty for every other runtime, which
+   * surface their servers via `extensions` instead. */
+  buzzAgentMcpServers: McpServerConfig[];
   sources: ConfigSourceReport;
 };
 
@@ -717,6 +744,8 @@ export type UpdateManagedAgentInput = {
   systemPrompt?: string | null;
   /** Absent = don't touch. Present = replace the env_vars map entirely. */
   envVars?: Record<string, string>;
+  /** Absent = don't touch. Present = replace this local-only MCP layer. */
+  mcpServers?: McpServerConfig[];
   parallelism?: number;
   turnTimeoutSeconds?: number;
   relayUrl?: string;
@@ -758,6 +787,9 @@ export type AgentPersona = {
   /** Environment variables injected for agents created from this persona.
    * Layered as: desktop parent env < persona envVars < agent envVars. */
   envVars: Record<string, string>;
+  /** Local-only MCP server layer inherited by agents created from this
+   * definition. Layered as: global < persona mcpServers < agent mcpServers. */
+  mcpServers: McpServerConfig[];
   /** NIP-AP behavioral defaults (wire shape). Null/empty = unset. */
   respondTo: RespondToMode | null;
   respondToAllowlist: string[];
@@ -786,6 +818,8 @@ export type CreatePersonaInput = {
   provider?: string;
   namePool?: string[];
   envVars?: Record<string, string>;
+  /** Local-only MCP server layer. Absent = empty (matches backend default). */
+  mcpServers?: McpServerConfig[];
   behavior?: PersonaBehaviorInput;
 };
 
@@ -799,6 +833,8 @@ export type UpdatePersonaInput = {
   provider?: string;
   namePool?: string[];
   envVars?: Record<string, string>;
+  /** Absent = don't touch. Present = replace this local-only MCP layer. */
+  mcpServers?: McpServerConfig[];
   behavior?: PersonaBehaviorInput;
 };
 
@@ -1017,6 +1053,8 @@ export type ChannelMessagesPageResponse = {
 export type GlobalAgentConfig = {
   /** Global env vars injected into all agents unconditionally. */
   env_vars: Record<string, string>;
+  /** Local-only MCP server layer inherited by every buzz-agent instance. */
+  mcp_servers: McpServerConfig[];
   /** Global fallback provider (e.g. "anthropic", "databricks_v2"). Null = no global default. */
   provider: string | null;
   /** Global fallback model identifier. Null = no global default. */

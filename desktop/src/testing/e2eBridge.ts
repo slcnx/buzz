@@ -87,6 +87,10 @@ type MockManagedAgentSeed = {
   autoRestartOnConfigChange?: boolean;
   respondTo?: RawManagedAgent["respond_to"];
   respondToAllowlist?: string[];
+  /** Override the default "goose" agent command (e.g. "buzz-agent"). */
+  agentCommand?: string;
+  /** Pre-seeded MCP server layer for the agent record. */
+  mcpServers?: McpServerConfig[];
 };
 
 type MockManagedAgentRuntimeSeed = {
@@ -382,11 +386,13 @@ type E2eConfig = {
     identityLocked?: boolean;
     /**
      * Global agent config returned by `get_global_agent_config`. Defaults to
-     * an empty config (no provider, model, or env vars) if not specified.
-     * Pass a config with a provider to test Inherit-from-global behavior.
+     * an empty config (no provider, model, env vars, or MCP servers) if not
+     * specified. Pass a config with a provider to test Inherit-from-global
+     * behavior.
      */
     globalAgentConfig?: {
       env_vars: Record<string, string>;
+      mcp_servers?: McpServerConfig[];
       provider: string | null;
       model: string | null;
       preferred_runtime?: string | null;
@@ -739,6 +745,7 @@ type RawManagedAgent = {
   model: string | null;
   provider?: string | null;
   env_vars?: Record<string, string>;
+  mcp_servers?: McpServerConfig[];
   status: "running" | "stopped" | "deployed" | "not_deployed";
   pid: number | null;
   created_at: string;
@@ -811,6 +818,7 @@ type RawPersona = {
   is_active: boolean;
   source_team?: string | null;
   env_vars?: Record<string, string>;
+  mcp_servers?: McpServerConfig[];
   respond_to?: string | null;
   respond_to_allowlist?: string[];
   parallelism?: number | null;
@@ -1471,6 +1479,14 @@ function cloneRelayAgent(agent: RawRelayAgent): RawRelayAgent {
   };
 }
 
+function cloneMcpServer(server: McpServerConfig): McpServerConfig {
+  return {
+    ...server,
+    args: [...server.args],
+    env: server.env.map((envVar) => ({ ...envVar })),
+  };
+}
+
 function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
   return {
     pubkey: agent.pubkey,
@@ -1491,6 +1507,7 @@ function cloneManagedAgent(agent: MockManagedAgent): RawManagedAgent {
     model: agent.model,
     provider: agent.provider ?? null,
     env_vars: { ...(agent.env_vars ?? {}) },
+    mcp_servers: (agent.mcp_servers ?? []).map(cloneMcpServer),
     status: agent.status,
     pid: agent.pid,
     created_at: agent.created_at,
@@ -1570,6 +1587,7 @@ function buildMockConfigSurface(pubkey: string): {
   normalized: Record<string, unknown>;
   advanced: unknown[];
   extensions: unknown[];
+  buzzAgentMcpServers: McpServerConfig[];
   sources: Record<string, unknown>;
 } {
   // Goose running — mixed origins, override on model
@@ -1635,6 +1653,7 @@ function buildMockConfigSurface(pubkey: string): {
       { name: "web_search", kind: "stdio", enabled: true },
       { name: "memory", kind: "stdio", enabled: false },
     ],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "available",
       acpConfigOptions: "available",
@@ -1699,6 +1718,7 @@ function buildMockConfigSurface(pubkey: string): {
       { name: "filesystem", kind: "mcp", enabled: true },
       { name: "github", kind: "mcp", enabled: true },
     ],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "available",
       acpConfigOptions: "available",
@@ -1756,6 +1776,7 @@ function buildMockConfigSurface(pubkey: string): {
     },
     advanced: [],
     extensions: [{ name: "developer", kind: "stdio", enabled: true }],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "pending",
       acpConfigOptions: "pending",
@@ -1835,6 +1856,7 @@ function buildMockConfigSurface(pubkey: string): {
       { name: "filesystem", kind: "mcp", enabled: true },
       { name: "github", kind: "mcp", enabled: true },
     ],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "notApplicable",
       acpConfigOptions: "notApplicable",
@@ -1894,6 +1916,7 @@ function buildMockConfigSurface(pubkey: string): {
     },
     advanced: [],
     extensions: [{ name: "web_search", kind: "stdio", enabled: true }],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "available",
       acpConfigOptions: "available",
@@ -1954,6 +1977,7 @@ function buildMockConfigSurface(pubkey: string): {
     },
     advanced: [],
     extensions: [],
+    buzzAgentMcpServers: [],
     sources: {
       acpNative: "available",
       acpConfigOptions: "available",
@@ -1964,7 +1988,7 @@ function buildMockConfigSurface(pubkey: string): {
     },
   };
 
-  const buzzAgentSurface = {
+  const buzzAgentBase = {
     ...gooseSurface,
     runtimeId: "buzz-agent",
     runtimeLabel: "Buzz Agent",
@@ -1977,12 +2001,35 @@ function buildMockConfigSurface(pubkey: string): {
     },
   };
 
+  // Empty WYSIWYG surface — "No custom servers configured" path.
+  const buzzAgentEmptySurface = {
+    ...buzzAgentBase,
+    buzzAgentMcpServers: [] satisfies McpServerConfig[],
+  };
+
+  // Populated WYSIWYG surface — exercises the read-only BuzzAgentMcpServerRow
+  // rendering with an effective-merged server list.
+  const buzzAgentPopulatedSurface = {
+    ...buzzAgentBase,
+    buzzAgentMcpServers: [
+      {
+        name: "filesystem",
+        command: "npx",
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+        env: [],
+        enabled: true,
+      },
+    ] satisfies McpServerConfig[],
+  };
+
   // Map well-known test pubkeys to specific fixtures.
   // Synthetic agents are intentionally not TEST_IDENTITIES.
   const PUBKEY_MULTI_ORIGIN =
     "abc1230000000000000000000000000000000000000000000000000000000def";
   const PUBKEY_BUZZ_AGENT =
     "b0220000000000000000000000000000000000000000000000000000000000a9";
+  const PUBKEY_BUZZ_AGENT_POPULATED =
+    "b0220000000000000000000000000000000000000000000000000000000000b1";
 
   switch (pubkey) {
     case ALICE_PUBKEY:
@@ -1996,7 +2043,9 @@ function buildMockConfigSurface(pubkey: string): {
     case PUBKEY_MULTI_ORIGIN:
       return multiOriginSurface;
     case PUBKEY_BUZZ_AGENT:
-      return buzzAgentSurface;
+      return buzzAgentEmptySurface;
+    case PUBKEY_BUZZ_AGENT_POPULATED:
+      return buzzAgentPopulatedSurface;
     default:
       return gooseSurface;
   }
@@ -2015,7 +2064,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     runtime: seed.runtime ?? null,
     relay_url: DEFAULT_RELAY_WS_URL,
     acp_command: "buzz-acp",
-    agent_command: "goose",
+    agent_command: seed.agentCommand ?? "goose",
     agent_args: ["acp"],
     mcp_command: "",
     turn_timeout_seconds: 320,
@@ -2026,6 +2075,7 @@ function buildSeededManagedAgent(seed: MockManagedAgentSeed): MockManagedAgent {
     avatar_url: seed.avatarUrl ?? null,
     model: null,
     env_vars: {},
+    mcp_servers: (seed.mcpServers ?? []).map(cloneMcpServer),
     status,
     pid: status === "running" ? 42000 + mockManagedAgents.length : null,
     created_at: now,
@@ -7340,6 +7390,7 @@ async function handleCreatePersona(args: {
     model?: string;
     provider?: string;
     envVars?: Record<string, string>;
+    mcpServers?: McpServerConfig[];
     behavior?: PersonaBehaviorInput;
   };
 }): Promise<RawPersona> {
@@ -7356,6 +7407,7 @@ async function handleCreatePersona(args: {
     is_active: true,
     source_team: null,
     env_vars: { ...(args.input.envVars ?? {}) },
+    mcp_servers: (args.input.mcpServers ?? []).map(cloneMcpServer),
     created_at: now,
     updated_at: now,
   };
@@ -7374,6 +7426,7 @@ async function handleUpdatePersona(args: {
     model?: string;
     provider?: string;
     envVars?: Record<string, string>;
+    mcpServers?: McpServerConfig[];
     behavior?: PersonaBehaviorInput;
   };
 }): Promise<RawPersona> {
@@ -7392,6 +7445,10 @@ async function handleUpdatePersona(args: {
   if (args.input.envVars !== undefined) {
     // Absent = preserve; present = replace entirely (matches Rust handler).
     persona.env_vars = { ...args.input.envVars };
+  }
+  if (args.input.mcpServers !== undefined) {
+    // Same absent-vs-present contract as envVars.
+    persona.mcp_servers = args.input.mcpServers.map(cloneMcpServer);
   }
   applyMockPersonaBehavior(persona, args.input.behavior);
   persona.updated_at = new Date().toISOString();
@@ -7637,6 +7694,7 @@ async function handleCreateManagedAgent(
       model?: string;
       provider?: string;
       envVars?: Record<string, string>;
+      mcpServers?: McpServerConfig[];
       spawnAfterCreate?: boolean;
       startOnAppLaunch?: boolean;
       backend?:
@@ -7713,6 +7771,7 @@ async function handleCreateManagedAgent(
     model: args.input.model?.trim() || linkedPersona?.model || null,
     provider: args.input.provider?.trim() || linkedPersona?.provider || null,
     env_vars: { ...(args.input.envVars ?? {}) },
+    mcp_servers: (args.input.mcpServers ?? []).map(cloneMcpServer),
     status: args.input.spawnAfterCreate ? "running" : "stopped",
     pid: args.input.spawnAfterCreate ? 42000 + mockManagedAgents.length : null,
     created_at: now,
@@ -7973,6 +8032,7 @@ async function handleUpdateManagedAgent(args: {
     model?: string | null;
     systemPrompt?: string | null;
     envVars?: Record<string, string>;
+    mcpServers?: McpServerConfig[];
     respondTo?: "owner-only" | "allowlist" | "anyone";
     respondToAllowlist?: string[];
   };
@@ -7989,6 +8049,10 @@ async function handleUpdateManagedAgent(args: {
   }
   if (args.input.envVars !== undefined) {
     agent.env_vars = { ...args.input.envVars };
+  }
+  if (args.input.mcpServers !== undefined) {
+    // Same absent-vs-present contract as envVars.
+    agent.mcp_servers = args.input.mcpServers.map(cloneMcpServer);
   }
   if (args.input.respondTo !== undefined) {
     agent.respond_to = args.input.respondTo;
@@ -10640,6 +10704,7 @@ export function maybeInstallE2eTauriMocks() {
           payload as {
             config: {
               env_vars: Record<string, string>;
+              mcp_servers?: McpServerConfig[];
               provider: string | null;
               model: string | null;
               preferred_runtime: string | null;

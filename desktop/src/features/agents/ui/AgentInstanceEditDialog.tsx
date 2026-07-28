@@ -63,6 +63,11 @@ import {
 } from "./runtimeModelProviderSelection";
 import { AgentCreationPreview } from "./AgentCreationPreview";
 import type { EnvVarsValue } from "./EnvVarsEditor";
+import {
+  mergeMcpServersByName,
+  serversEqual,
+  type McpServersValue,
+} from "./McpServersEditor";
 import { useRequiredCredentialState } from "./useRequiredCredentialState";
 import { CreateAgentRespondToField } from "./RespondToField";
 import { PersonaDropdownField } from "./PersonaDropdownField";
@@ -136,6 +141,9 @@ export function AgentInstanceEditDialog({
   const [isCustomProviderEditing, setIsCustomProviderEditing] =
     React.useState(false);
   const [envVars, setEnvVars] = React.useState<EnvVarsValue>(agent.envVars);
+  const [mcpServers, setMcpServers] = React.useState<McpServersValue>(
+    agent.mcpServers,
+  );
   const [autoRestartOnConfigChange, setAutoRestartOnConfigChange] =
     React.useState(agent.autoRestartOnConfigChange);
   const personasQuery = usePersonasQuery();
@@ -185,6 +193,7 @@ export function AgentInstanceEditDialog({
       setProvider(agent.provider ?? "");
       setIsCustomProviderEditing(false);
       setEnvVars(agent.envVars);
+      setMcpServers(agent.mcpServers);
       setAutoRestartOnConfigChange(agent.autoRestartOnConfigChange);
       setRespondTo(agent.respondTo);
       setRespondToAllowlist(agent.respondToAllowlist);
@@ -1178,6 +1187,7 @@ export function AgentInstanceEditDialog({
                       onAutoRestartChange={setAutoRestartOnConfigChange}
                       onEnvVarsChange={setEnvVars}
                       onInheritHarnessChange={setInheritHarness}
+                      onMcpServersChange={setMcpServers}
                       onParallelismChange={setParallelism}
                       onSystemPromptChange={setSystemPrompt}
                     />

@@ -98,7 +98,10 @@ const overrides = new Map([
   // 3-phase (stage/stop/commit) + commit_cascade_agents injectable helper for
   // retry-safety. Load-bearing reviewer-required change; queued to split.
   // Consolidation removed the legacy persona-card import/export codecs.
-  ["src-tauri/src/commands/personas/mod.rs", 984],
+  // +6: local-only MCP layer validation/update wiring. Load-bearing; queued to split.
+  // MCP validation and inherited-layer effective-cap save gate; the gate counts
+  // trailing newlines, so 994 physical lines are 995 counted lines.
+  ["src-tauri/src/commands/personas/mod.rs", 995],
   // #1418 read-path fix: get_thread_replies' blocker fix (shared TIMELINE_KINDS
   // const + build_thread_replies_filter helper, mirroring the channel sibling so
   // the two p-gate filters can't drift) plus two guard unit tests. The file was

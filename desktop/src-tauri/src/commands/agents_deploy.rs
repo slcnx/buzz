@@ -99,6 +99,7 @@ pub(super) fn build_deploy_payload(
         effective_provider,
         effective_prompt,
         merged_env,
+        crate::managed_agents::mcp_server_transport(effective_mcp_servers),
     ))
 }
 
@@ -112,6 +113,7 @@ pub(super) fn deploy_payload_json(
     effective_provider: Option<String>,
     effective_prompt: Option<String>,
     merged_env: std::collections::BTreeMap<String, String>,
+    effective_mcp_servers: Vec<crate::managed_agents::McpServerTransport>,
 ) -> serde_json::Value {
     serde_json::json!({
         "name": &record.name,
@@ -130,5 +132,7 @@ pub(super) fn deploy_payload_json(
         "respond_to": record.respond_to,
         "respond_to_allowlist": &record.respond_to_allowlist,
         "env_vars": merged_env,
+        // Local MCP configuration resolves exactly like the local spawn path.
+        "mcp_servers": effective_mcp_servers,
     })
 }
